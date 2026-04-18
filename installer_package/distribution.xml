@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1.0">
+    <title>ML Integration</title>
+    <organization>TBDO Inc.</organization>
+    <welcome file="welcome.txt" />
+    <conclusion file="conclusion.txt" />
+    <background file="background.png" alignment="topleft" scaling="none" />
+    <domains enable_anywhere="true" />
+    <options require-admin="false" />
+    <pkg-ref id="com.tbdo.mlintegration" />
+</installer-gui-script>

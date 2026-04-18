@@ -169,6 +169,65 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testChecklistAutoSyncKeepsTestModeSatisfiedInNormalRuntimeMode() {
+        let planner = BlueprintPlanner()
+        planner.setReadinessCriterion(id: "test-mode", isSatisfied: true)
+
+        let snapshot = ReadinessPreflightSnapshot(
+            hostProfile: HostProfile(architecture: .appleSilicon, cpuCores: 8, memoryGB: 16, macOSVersion: "test"),
+            virtualizationSupported: true,
+            catalogHasArtifacts: true,
+            catalogErrorMessage: "",
+            installLifecycleState: .ready,
+            hasManagedVM: true,
+            testRootOverrideEnabled: false,
+            currentRunID: UUID()
+        )
+
+        planner.autoSyncChecklist(
+            with: ReadinessChecklistSignals(
+                snapshot: snapshot,
+                preflightEvidenceExists: true,
+                securityFlowReady: true,
+                buildPassed: nil,
+                testsPassed: nil
+            )
+        )
+
+        XCTAssertTrue(planner.readinessCriteria.first(where: { $0.id == "test-mode" })?.isSatisfied ?? false)
+    }
+
+    @MainActor
+    func testLivePreflightSignalsCanReachGoInNormalRuntimeMode() {
+        let planner = BlueprintPlanner()
+        let snapshot = ReadinessPreflightSnapshot(
+            hostProfile: HostProfile(architecture: .appleSilicon, cpuCores: 8, memoryGB: 16, macOSVersion: "test"),
+            virtualizationSupported: true,
+            catalogHasArtifacts: true,
+            catalogErrorMessage: "",
+            installLifecycleState: .ready,
+            hasManagedVM: true,
+            testRootOverrideEnabled: false,
+            currentRunID: UUID()
+        )
+
+        planner.applyPreflightScan(snapshot)
+        planner.autoSyncChecklist(
+            with: ReadinessChecklistSignals(
+                snapshot: snapshot,
+                preflightEvidenceExists: true,
+                securityFlowReady: true,
+                buildPassed: nil,
+                testsPassed: nil
+            )
+        )
+
+        XCTAssertTrue(planner.isReadyForEnvironmentTesting)
+        XCTAssertTrue(planner.startEnvironmentTestingIfReady())
+        XCTAssertTrue(planner.environmentTestingStarted)
+    }
+
+    @MainActor
     func testStartEnvironmentTestingBlocksOnNoGoAndPersistsDecisionReport() {
         let planner = BlueprintPlanner()
         let started = planner.startEnvironmentTestingIfReady()
@@ -1068,6 +1127,12 @@ final class ML_IntegrationTests: XCTestCase {
             .appendingPathComponent("runtime-session.json")
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionFile.path))
 
+        // Decode session JSON and verify stored state and PID
+        let raw = try Data(contentsOf: sessionFile)
+        let snapshot = try JSONDecoder().decode(RuntimeSessionSnapshot.self, from: raw)
+        XCTAssertEqual(snapshot.stateRaw, VMRuntimeState.running.rawValue)
+        XCTAssertEqual(snapshot.processID, getpid())
+
         // Simulate relaunch and ensure we rebind to running PID
         let relaunched = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
@@ -1136,6 +1201,12 @@ final class ML_IntegrationTests: XCTestCase {
         try FileManager.default.createDirectory(at: sessionPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: sessionPath)
 
+        // Verify bogus snapshot content
+        let bogusData = try Data(contentsOf: sessionPath)
+        let bogusDecoded = try JSONDecoder().decode(RuntimeSessionSnapshot.self, from: bogusData)
+        XCTAssertEqual(bogusDecoded.stateRaw, VMRuntimeState.running.rawValue)
+        XCTAssertEqual(bogusDecoded.processID, Int32.max)
+
         // Relaunch and ensure state falls back to stopped with explanatory message
         let relaunched = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
@@ -1150,6 +1221,12 @@ final class ML_IntegrationTests: XCTestCase {
         await relaunched.restoreVMRegistryState()
         XCTAssertEqual(relaunched.vmRuntimeState, .stopped)
         XCTAssertTrue(relaunched.vmRuntimeStatusMessage.localizedCaseInsensitiveContains("marking as stopped"))
+
+        // Ensure restore did not mutate the persisted session file
+        let afterRestoreData = try Data(contentsOf: sessionPath)
+        let afterRestoreSnapshot = try JSONDecoder().decode(RuntimeSessionSnapshot.self, from: afterRestoreData)
+        XCTAssertEqual(afterRestoreSnapshot.stateRaw, VMRuntimeState.running.rawValue)
+        XCTAssertEqual(afterRestoreSnapshot.processID, Int32.max)
     }
 }
 

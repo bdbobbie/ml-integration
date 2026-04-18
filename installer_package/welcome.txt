@@ -1,0 +1,15 @@
+ML Integration v1.0.0 Installer
+
+© 2026 TBDO Inc. All rights reserved.
+
+Welcome to ML Integration - your comprehensive solution for Linux virtualization on macOS.
+
+This installer will place ML Integration.app in your Applications folder, ready for immediate use.
+
+System Requirements:
+• macOS 12.0 or later
+• Apple Silicon or Intel Mac
+• 8GB RAM minimum (16GB recommended)
+• Virtualization support enabled
+
+Click Continue to proceed with installation.

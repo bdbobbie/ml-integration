@@ -24,6 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		702779612F94038F003BAB7A /* ML Integration.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "ML Integration.entitlements"; sourceTree = "<group>"; };
 		7041CA152F92BA8D0015A49D /* ML Integration.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "ML Integration.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7041CA222F92BA8F0015A49D /* ML IntegrationTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "ML IntegrationTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7041CA2C2F92BA8F0015A49D /* ML IntegrationUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "ML IntegrationUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -79,6 +80,7 @@
 				7041CA252F92BA8F0015A49D /* ML IntegrationTests */,
 				7041CA2F2F92BA8F0015A49D /* ML IntegrationUITests */,
 				7041CA162F92BA8D0015A49D /* Products */,
+				702779612F94038F003BAB7A /* ML Integration.entitlements */,
 			);
 			sourceTree = "<group>";
 		};
@@ -418,6 +420,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				CODE_SIGN_ENTITLEMENTS = "ML Integration/ML Integration.entitlements";
 			};
 			name = Debug;
 		};
@@ -450,6 +453,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				CODE_SIGN_ENTITLEMENTS = "ML Integration/ML Integration.entitlements";
 			};
 			name = Release;
 		};

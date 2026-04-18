@@ -301,23 +301,43 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
         var artifacts: [DistributionArtifact] = []
 
         for descriptor in descriptors {
-            let artifactID = "\(descriptor.distribution.rawValue)-\(architecture.rawValue)"
-            let result = try await fetchChecksumAndSignature(descriptor: descriptor)
-            signatureStatusByArtifactID[artifactID] = result.signatureVerified
+            let fileToken = descriptor.checksumFileName ?? descriptor.downloadURL.lastPathComponent
+            let artifactID = "\(descriptor.distribution.rawValue)-\(architecture.rawValue)-\(fileToken)"
+            do {
+                let result = try await fetchChecksumAndSignature(descriptor: descriptor)
+                signatureStatusByArtifactID[artifactID] = result.signatureVerified
 
-            artifacts.append(
-                DistributionArtifact(
-                    id: artifactID,
-                    distribution: descriptor.distribution,
-                    architecture: architecture,
-                    version: descriptor.version,
-                    downloadURL: descriptor.downloadURL,
-                    mirrorURLs: descriptor.mirrorURLs,
-                    checksumSHA256: result.checksum,
-                    signatureExpected: descriptor.checksumSignatureURL != nil,
-                    signatureVerifiedAtSource: result.signatureVerified
+                artifacts.append(
+                    DistributionArtifact(
+                        id: artifactID,
+                        distribution: descriptor.distribution,
+                        architecture: architecture,
+                        version: descriptor.version,
+                        downloadURL: descriptor.downloadURL,
+                        mirrorURLs: descriptor.mirrorURLs,
+                        checksumSHA256: result.checksum,
+                        signatureExpected: descriptor.checksumSignatureURL != nil,
+                        signatureVerifiedAtSource: result.signatureVerified
+                    )
                 )
-            )
+            } catch {
+                // Keep catalog visible even if checksum/signature metadata endpoints fail.
+                // Download can still proceed, and UI can warn that metadata verification is unavailable.
+                signatureStatusByArtifactID[artifactID] = false
+                artifacts.append(
+                    DistributionArtifact(
+                        id: artifactID,
+                        distribution: descriptor.distribution,
+                        architecture: architecture,
+                        version: descriptor.version,
+                        downloadURL: descriptor.downloadURL,
+                        mirrorURLs: descriptor.mirrorURLs,
+                        checksumSHA256: "",
+                        signatureExpected: descriptor.checksumSignatureURL != nil,
+                        signatureVerifiedAtSource: false
+                    )
+                )
+            }
         }
 
         return artifacts.sorted { $0.distribution.rawValue < $1.distribution.rawValue }
@@ -494,9 +514,7 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
             architecture: .appleSilicon,
             version: "24.04.4 LTS",
             downloadURL: URL(string: "https://cdimage.ubuntu.com/ubuntu/releases/noble/release/ubuntu-24.04.4-desktop-arm64.iso")!,
-            mirrorURLs: [
-                URL(string: "https://mirror.math.princeton.edu/pub/ubuntu-cdimage/ubuntu/releases/noble/release/ubuntu-24.04.4-desktop-arm64.iso")!
-            ],
+            mirrorURLs: [],
             checksumFeedURL: URL(string: "https://cdimage.ubuntu.com/ubuntu/releases/noble/release/SHA256SUMS"),
             checksumFileName: "ubuntu-24.04.4-desktop-arm64.iso",
             checksumStrategy: .standardSha256SumsFile,
@@ -510,7 +528,7 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
             version: "24.04.4 LTS",
             downloadURL: URL(string: "https://releases.ubuntu.com/noble/ubuntu-24.04.4-desktop-amd64.iso")!,
             mirrorURLs: [
-                URL(string: "https://mirror.math.princeton.edu/pub/ubuntu-releases/noble/ubuntu-24.04.4-desktop-amd64.iso")!
+                URL(string: "https://old-releases.ubuntu.com/releases/24.04.4/ubuntu-24.04.4-desktop-amd64.iso")!
             ],
             checksumFeedURL: URL(string: "https://releases.ubuntu.com/noble/SHA256SUMS"),
             checksumFileName: "ubuntu-24.04.4-desktop-amd64.iso",
@@ -524,9 +542,7 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
             architecture: .appleSilicon,
             version: "13 (netinst)",
             downloadURL: URL(string: "https://cdimage.debian.org/debian-cd/current/arm64/iso-cd/debian-13.0.0-arm64-netinst.iso")!,
-            mirrorURLs: [
-                URL(string: "https://mirror.math.princeton.edu/pub/debian-cd/current/arm64/iso-cd/debian-13.0.0-arm64-netinst.iso")!
-            ],
+            mirrorURLs: [],
             checksumFeedURL: URL(string: "https://cdimage.debian.org/debian-cd/current/arm64/iso-cd/SHA256SUMS"),
             checksumFileName: "debian-13.0.0-arm64-netinst.iso",
             checksumStrategy: .standardSha256SumsFile,
@@ -536,12 +552,23 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
         ),
         DistributionReleaseDescriptor(
             distribution: .debian,
+            architecture: .appleSilicon,
+            version: "13 (full DVD)",
+            downloadURL: URL(string: "https://cdimage.debian.org/debian-cd/current/arm64/iso-dvd/debian-13.0.0-arm64-DVD-1.iso")!,
+            mirrorURLs: [],
+            checksumFeedURL: URL(string: "https://cdimage.debian.org/debian-cd/current/arm64/iso-dvd/SHA256SUMS"),
+            checksumFileName: "debian-13.0.0-arm64-DVD-1.iso",
+            checksumStrategy: .standardSha256SumsFile,
+            checksumSignatureURL: URL(string: "https://cdimage.debian.org/debian-cd/current/arm64/iso-dvd/SHA256SUMS.sign"),
+            keyringFileName: "debian-archive-keyring.gpg",
+            keyFingerprint: nil
+        ),
+        DistributionReleaseDescriptor(
+            distribution: .debian,
             architecture: .intel,
             version: "13 (netinst)",
             downloadURL: URL(string: "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.0.0-amd64-netinst.iso")!,
-            mirrorURLs: [
-                URL(string: "https://mirror.math.princeton.edu/pub/debian-cd/current/amd64/iso-cd/debian-13.0.0-amd64-netinst.iso")!
-            ],
+            mirrorURLs: [],
             checksumFeedURL: URL(string: "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/SHA256SUMS"),
             checksumFileName: "debian-13.0.0-amd64-netinst.iso",
             checksumStrategy: .standardSha256SumsFile,
@@ -550,15 +577,26 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
             keyFingerprint: nil
         ),
         DistributionReleaseDescriptor(
+            distribution: .debian,
+            architecture: .intel,
+            version: "13 (full DVD)",
+            downloadURL: URL(string: "https://cdimage.debian.org/debian-cd/current/amd64/iso-dvd/debian-13.0.0-amd64-DVD-1.iso")!,
+            mirrorURLs: [],
+            checksumFeedURL: URL(string: "https://cdimage.debian.org/debian-cd/current/amd64/iso-dvd/SHA256SUMS"),
+            checksumFileName: "debian-13.0.0-amd64-DVD-1.iso",
+            checksumStrategy: .standardSha256SumsFile,
+            checksumSignatureURL: URL(string: "https://cdimage.debian.org/debian-cd/current/amd64/iso-dvd/SHA256SUMS.sign"),
+            keyringFileName: "debian-archive-keyring.gpg",
+            keyFingerprint: nil
+        ),
+        DistributionReleaseDescriptor(
             distribution: .fedora,
             architecture: .intel,
             version: "Workstation 43",
-            downloadURL: URL(string: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Workstation/x86_64/iso/Fedora-Workstation-Live-x86_64-43-1.6.iso")!,
-            mirrorURLs: [
-                URL(string: "https://mirrors.kernel.org/fedora/releases/43/Workstation/x86_64/iso/Fedora-Workstation-Live-x86_64-43-1.6.iso")!
-            ],
-            checksumFeedURL: URL(string: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Workstation/x86_64/iso/Fedora-Workstation-43-1.6-x86_64-CHECKSUM"),
-            checksumFileName: "Fedora-Workstation-Live-x86_64-43-1.6.iso",
+            downloadURL: URL(string: "https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Workstation/x86_64/iso/Fedora-Workstation-Live-43-1.6.x86_64.iso")!,
+            mirrorURLs: [],
+            checksumFeedURL: URL(string: "https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Workstation/x86_64/iso/Fedora-Workstation-43-1.6-x86_64-CHECKSUM"),
+            checksumFileName: "Fedora-Workstation-Live-43-1.6.x86_64.iso",
             checksumStrategy: .fedoraChecksumFile,
             checksumSignatureURL: nil,
             keyringFileName: nil,
@@ -568,12 +606,10 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
             distribution: .fedora,
             architecture: .appleSilicon,
             version: "Workstation 43",
-            downloadURL: URL(string: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Workstation/aarch64/iso/Fedora-Workstation-Live-aarch64-43-1.6.iso")!,
-            mirrorURLs: [
-                URL(string: "https://mirrors.kernel.org/fedora/releases/43/Workstation/aarch64/iso/Fedora-Workstation-Live-aarch64-43-1.6.iso")!
-            ],
-            checksumFeedURL: URL(string: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Workstation/aarch64/iso/Fedora-Workstation-43-1.6-aarch64-CHECKSUM"),
-            checksumFileName: "Fedora-Workstation-Live-aarch64-43-1.6.iso",
+            downloadURL: URL(string: "https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Workstation/aarch64/iso/Fedora-Workstation-Live-43-1.6.aarch64.iso")!,
+            mirrorURLs: [],
+            checksumFeedURL: URL(string: "https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Workstation/aarch64/iso/Fedora-Workstation-43-1.6-aarch64-CHECKSUM"),
+            checksumFileName: "Fedora-Workstation-Live-43-1.6.aarch64.iso",
             checksumStrategy: .fedoraChecksumFile,
             checksumSignatureURL: nil,
             keyringFileName: nil,
@@ -584,9 +620,7 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
             architecture: .intel,
             version: "Tumbleweed Current",
             downloadURL: URL(string: "https://download.opensuse.org/tumbleweed/iso/openSUSE-Tumbleweed-DVD-x86_64-Current.iso")!,
-            mirrorURLs: [
-                URL(string: "https://mirrors.kernel.org/opensuse/tumbleweed/iso/openSUSE-Tumbleweed-DVD-x86_64-Current.iso")!
-            ],
+            mirrorURLs: [],
             checksumFeedURL: URL(string: "https://download.opensuse.org/tumbleweed/iso/openSUSE-Tumbleweed-DVD-x86_64-Current.iso.sha256"),
             checksumFileName: "openSUSE-Tumbleweed-DVD-x86_64-Current.iso",
             checksumStrategy: .directSha256File,
@@ -599,9 +633,7 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
             architecture: .appleSilicon,
             version: "Tumbleweed Current",
             downloadURL: URL(string: "https://download.opensuse.org/ports/aarch64/tumbleweed/iso/openSUSE-Tumbleweed-DVD-aarch64-Current.iso")!,
-            mirrorURLs: [
-                URL(string: "https://mirrors.kernel.org/opensuse/ports/aarch64/tumbleweed/iso/openSUSE-Tumbleweed-DVD-aarch64-Current.iso")!
-            ],
+            mirrorURLs: [],
             checksumFeedURL: URL(string: "https://download.opensuse.org/ports/aarch64/tumbleweed/iso/openSUSE-Tumbleweed-DVD-aarch64-Current.iso.sha256"),
             checksumFileName: "openSUSE-Tumbleweed-DVD-aarch64-Current.iso",
             checksumStrategy: .directSha256File,
@@ -609,32 +641,7 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
             keyringFileName: nil,
             keyFingerprint: nil
         ),
-        DistributionReleaseDescriptor(
-            distribution: .popOS,
-            architecture: .intel,
-            version: "24.04 LTS",
-            downloadURL: URL(string: "https://system76.com/pop/download/")!,
-            mirrorURLs: [],
-            checksumFeedURL: URL(string: "https://system76.com/pop/download/"),
-            checksumFileName: nil,
-            checksumStrategy: .popOSDownloadPage,
-            checksumSignatureURL: nil,
-            keyringFileName: nil,
-            keyFingerprint: nil
-        ),
-        DistributionReleaseDescriptor(
-            distribution: .popOS,
-            architecture: .appleSilicon,
-            version: "24.04 LTS",
-            downloadURL: URL(string: "https://system76.com/pop/download/")!,
-            mirrorURLs: [],
-            checksumFeedURL: URL(string: "https://system76.com/pop/download/"),
-            checksumFileName: nil,
-            checksumStrategy: .popOSDownloadPage,
-            checksumSignatureURL: nil,
-            keyringFileName: nil,
-            keyFingerprint: nil
-        )
+        // Pop!_OS is intentionally omitted until a stable direct ISO URL feed is available.
     ]
 }
 

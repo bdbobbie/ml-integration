@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import Virtualization
+import Darwin
 
 @MainActor
 final class RuntimeWorkbenchViewModel: ObservableObject {
@@ -91,11 +92,14 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             observabilityStatusMessage = "Observability init failed: \(error.localizedDescription)"
         }
 
+        let restoredSession = restoreRuntimeSessionSnapshotIfAvailable()
         let entries = await registry.allEntries()
         if entries.isEmpty {
             registryStatusMessage = "VM registry is empty."
-            installLifecycleState = .idle
-            installLifecycleDetail = "No persisted VM install scaffolds were found."
+            if !applyRestoredRuntimeSession(restoredSession) {
+                installLifecycleState = .idle
+                installLifecycleDetail = "No persisted VM install scaffolds were found."
+            }
             await logRunEvent(stage: .registryRestore, result: .success, vmID: nil, message: "Registry restore finished with no entries.")
             return
         }
@@ -143,6 +147,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
 
         registryStatusMessage = "Registry restored \(validEntries.count) VM entries, pruned \(prunedCount) stale entries."
+        _ = applyRestoredRuntimeSession(restoredSession)
         await logRunEvent(
             stage: .registryRestore,
             result: .success,
@@ -441,6 +446,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             vmRuntimeState = .stopped
             vmRuntimeStatusMessage = "VM scaffold is ready and currently stopped."
             vmStatusMessage = "VM pipeline scaffolded with automation assets when supported. ID: \(vmID.uuidString). VM assets at: \(assets.vmDirectoryURL.path)"
+            persistRuntimeSessionSnapshot(vmID: vmID, state: .stopped)
             await logRunEvent(stage: .installReady, result: .success, vmID: vmID, message: installLifecycleDetail)
         } catch {
             installLifecycleState = .failed
@@ -463,6 +469,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             try await provisioningService.startVM(id: vmID)
             vmRuntimeState = .running
             vmRuntimeStatusMessage = "VM \(vmID.uuidString) is running."
+            persistRuntimeSessionSnapshot(vmID: vmID, state: .running)
             await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: vmRuntimeStatusMessage)
         } catch {
             vmRuntimeState = .failed
@@ -484,6 +491,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             try await provisioningService.stopVM(id: vmID)
             vmRuntimeState = .stopped
             vmRuntimeStatusMessage = "VM \(vmID.uuidString) is stopped."
+            persistRuntimeSessionSnapshot(vmID: vmID, state: .stopped)
             await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: vmRuntimeStatusMessage)
         } catch {
             vmRuntimeState = .failed
@@ -568,6 +576,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             installLifecycleDetail = "No active VM install scaffold is currently selected."
             vmRuntimeState = .stopped
             vmRuntimeStatusMessage = "No active VM runtime."
+            clearRuntimeSessionSnapshot()
             await logRunEvent(stage: .cleanup, result: .success, vmID: vmID, message: cleanupStatusMessage)
         } catch {
             cleanupStatusMessage = "Uninstall failed: \(error.localizedDescription)"
@@ -811,5 +820,88 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     private func baseDirectory() -> URL {
         RuntimeEnvironment.mlIntegrationRootURL()
+    }
+
+    private var runtimeSessionFileURL: URL {
+        baseDirectory().appendingPathComponent("runtime-session.json", isDirectory: false)
+    }
+
+    private func persistRuntimeSessionSnapshot(vmID: UUID, state: VMRuntimeState) {
+        let snapshot = RuntimeSessionSnapshot(
+            vmID: vmID,
+            stateRaw: state.rawValue,
+            processID: getpid(),
+            lastUpdatedISO8601: ISO8601DateFormatter().string(from: Date())
+        )
+
+        do {
+            try FileManager.default.createDirectory(
+                at: runtimeSessionFileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try JSONEncoder().encode(snapshot)
+            try data.write(to: runtimeSessionFileURL, options: [.atomic])
+        } catch {
+            vmRuntimeStatusMessage = "Runtime session snapshot persistence failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func clearRuntimeSessionSnapshot() {
+        if FileManager.default.fileExists(atPath: runtimeSessionFileURL.path) {
+            try? FileManager.default.removeItem(at: runtimeSessionFileURL)
+        }
+    }
+
+    private func restoreRuntimeSessionSnapshotIfAvailable() -> RuntimeSessionSnapshot? {
+        guard let data = try? Data(contentsOf: runtimeSessionFileURL) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(RuntimeSessionSnapshot.self, from: data)
+    }
+
+    @discardableResult
+    private func applyRestoredRuntimeSession(_ snapshot: RuntimeSessionSnapshot?) -> Bool {
+        guard let snapshot else {
+            return false
+        }
+
+        activeVMID = snapshot.vmID
+        if lastManagedVMID == nil {
+            lastManagedVMID = snapshot.vmID
+        }
+        installLifecycleState = .ready
+        installLifecycleDetail = "Restored runtime session for VM \(snapshot.vmID.uuidString)."
+
+        if snapshot.stateRaw == VMRuntimeState.running.rawValue {
+            if isProcessAlive(snapshot.processID) {
+                vmRuntimeState = .running
+                vmRuntimeStatusMessage = "Rebound to running VM process \(snapshot.processID)."
+            } else {
+                vmRuntimeState = .stopped
+                vmRuntimeStatusMessage = "Stored VM process is no longer alive; marking as stopped."
+            }
+            return true
+        }
+
+        if let restoredState = VMRuntimeState(rawValue: snapshot.stateRaw) {
+            vmRuntimeState = restoredState
+            vmRuntimeStatusMessage = "Restored runtime session state: \(restoredState.rawValue)."
+        } else {
+            vmRuntimeState = .stopped
+            vmRuntimeStatusMessage = "Runtime session state was invalid; marking as stopped."
+        }
+        return true
+    }
+
+    private func isProcessAlive(_ processID: Int32) -> Bool {
+        guard processID > 0 else {
+            return false
+        }
+
+        if kill(processID, 0) == 0 {
+            return true
+        }
+
+        return errno == EPERM
     }
 }

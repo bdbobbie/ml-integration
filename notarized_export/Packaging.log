@@ -1,0 +1,102 @@
+2026-04-18 00:55:10 +0000 [MT] Initial pipeline context: <IDEDistributionProcessingPipelineContext: 0xaaa0d4f00; archive(resolved)="<IDEArchive: 0xaac95ad10>", distributionTask(resolved)="2", distributionDestination(resolved)="1", distributionMethod(resolved)="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team(resolved)="<IDEProvisioningBasicTeam: 0xaacb3c2c0; teamID='D5JH7G5ZVL', teamName='(null)'>">
+	Chain (11, self inclusive):
+	<IDEDistributionProcessingPipelineContext: 0xaaa0d4f00; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team="<IDEProvisioningBasicTeam: 0xaacb3c2c0; teamID='D5JH7G5ZVL', teamName='(null)'>">
+	<IDEDistributionProcessingPipelineContext: 0xaaa0d5800; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team="<IDEProvisioningBasicTeam: 0xaacb3c2c0; teamID='D5JH7G5ZVL', teamName='(null)'>">
+	<IDEDistributionContext: 0xaaa17de00; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team="<IDEProvisioningBasicTeam: 0xaacb3c2c0; teamID='D5JH7G5ZVL', teamName='(null)'>">
+	<IDEDistributionContext: 0xaaa17cf00; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team="<IDEProvisioningBasicTeam: 0xaacb3c2c0; teamID='D5JH7G5ZVL', teamName='(null)'>">
+	<IDEDistributionContext: 0xaaa17cc80; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team="<IDEProvisioningBasicTeam: 0xaacb3c2c0; teamID='D5JH7G5ZVL', teamName='(null)'>">
+	<IDEDistributionContext: 0xaaa17ca00; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team="<IDEProvisioningBasicTeam: 0xaacb3c2c0; teamID='D5JH7G5ZVL', teamName='(null)'>">
+	<IDEDistributionContext: 0xaaa17c780; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team="<IDEProvisioningBasicTeam: 0xaacb3c2c0; teamID='D5JH7G5ZVL', teamName='(null)'>">
+	<IDEDistributionContext: 0xaaa17c500; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team="<IDEProvisioningBasicTeam: 0xaacb3c2c0; teamID='D5JH7G5ZVL', teamName='(null)'>">
+	<IDEDistributionContext: 0xaaa17c280; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team="(null)">
+	<IDEDistributionContext: 0xaaa17c000; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="<IDEDistributionMethodDevelopmentSignedMac: 0xaaa98bfd0>", team="(null)">
+	<IDEDistributionContext: 0x101036810; archive = "<IDEArchive: 0xaac95ad10>", distributionMethod="(null)", team="(null)">
+</IDEDistributionProcessingPipelineContext: 0xaaa0d4f00>
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionCreateDestRootStep
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionCopyItemStep
+2026-04-18 00:55:10 +0000 [MT] Running /usr/bin/ditto '-V' '/Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app' '/var/folders/xv/ws_pcp4536b022h5tw1smkf00000gn/T/XcodeDistPipeline.~~~kP8rVd/Root/Applications/ML Integration.app'
+2026-04-18 00:55:10 +0000  >>> Copying /Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app 
+2026-04-18 00:55:10 +0000  copying file ./Contents/_CodeSignature/CodeResources ... 
+2026-04-18 00:55:10 +0000  2442 bytes for ./Contents/_CodeSignature/CodeResources
+2026-04-18 00:55:10 +0000  copying file ./Contents/MacOS/ML Integration ... 
+2026-04-18 00:55:10 +0000  1652048 bytes for ./Contents/MacOS/ML Integration
+2026-04-18 00:55:10 +0000  copying file ./Contents/Resources/Info.plist ... 
+2026-04-18 00:55:10 +0000  1466 bytes for ./Contents/Resources/Info.plist
+2026-04-18 00:55:10 +0000  copying file ./Contents/Info.plist ... 
+2026-04-18 00:55:10 +0000  1398 bytes for ./Contents/Info.plist
+2026-04-18 00:55:10 +0000  copying file ./Contents/PkgInfo ... 
+2026-04-18 00:55:10 +0000  8 bytes for ./Contents/PkgInfo
+2026-04-18 00:55:10 +0000 [MT] /usr/bin/ditto exited with 0
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionEmbedProfileStep
+2026-04-18 00:55:10 +0000 [MT] Skipping profile for item: <IDEDistributionItem: 0xaaca12d00; bundleID='TBDOInc.ML-Integration', path='<DVTFilePath:0xaaca41880:'/Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app'>', codeSigningInfo='<_DVTCodeSigningInformation_Path: 0xaacd842a0; isSigned='1', isAdHocSigned='0', signingCertificate='<DVTSigningCertificate: 0xaacafe400; name='Apple Development: tbdoadmin@proton.me (KN8BCDQ9Y9)', hash='58582AE9A384C26298AC21BD7CCC9046D9B36CCA', serialNumber='16B713CEEB6EFF26B40874682D80199E', certificateKinds='(
+    "1.2.840.113635.100.6.1.12",
+    "1.2.840.113635.100.6.1.2"
+), issueDate='2026-04-17 18:49:30 +0000''>', entitlements='{
+    "com.apple.security.app-sandbox" = 1;
+    "com.apple.security.files.user-selected.read-only" = 1;
+}', teamID='D5JH7G5ZVL', identifier='TBDOInc.ML-Integration', executablePath='<DVTFilePath:0xaab7fa4c0:'/Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app/Contents/MacOS/ML Integration'>', hardenedRuntime='1'>'>
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionInfoPlistStep
+2026-04-18 00:55:10 +0000 [MT] Skipping step: IDEDistributionInfoPlistStep because it said so
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionAppThinningPlistStep
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionSymbolsStep
+2026-04-18 00:55:10 +0000 [MT] Skipping step: IDEDistributionSymbolsStep because it said so
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionAppThinningStep
+2026-04-18 00:55:10 +0000 [MT] Skipping step: IDEDistributionAppThinningStep because it said so
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionArchThinningStep
+2026-04-18 00:55:10 +0000 [MT] Archs to thin for item /Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app are []
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionODRStep
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionStripXattrsStep
+2026-04-18 00:55:10 +0000 [MT] Skipping stripping extended attributes because the codesign step will strip them.
+2026-04-18 00:55:10 +0000 [MT] Processing step: IDEDistributionCodesignStep
+2026-04-18 00:55:10 +0000 [MT] Entitlements for <IDEDistributionItem: 0xaaca12d00; bundleID='TBDOInc.ML-Integration', path='<DVTFilePath:0xaaca41880:'/Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app'>', codeSigningInfo='<_DVTCodeSigningInformation_Path: 0xaacd842a0; isSigned='1', isAdHocSigned='0', signingCertificate='<DVTSigningCertificate: 0xaacafe400; name='Apple Development: tbdoadmin@proton.me (KN8BCDQ9Y9)', hash='58582AE9A384C26298AC21BD7CCC9046D9B36CCA', serialNumber='16B713CEEB6EFF26B40874682D80199E', certificateKinds='(
+    "1.2.840.113635.100.6.1.12",
+    "1.2.840.113635.100.6.1.2"
+), issueDate='2026-04-17 18:49:30 +0000''>', entitlements='{
+    "com.apple.security.app-sandbox" = 1;
+    "com.apple.security.files.user-selected.read-only" = 1;
+}', teamID='D5JH7G5ZVL', identifier='TBDOInc.ML-Integration', executablePath='<DVTFilePath:0xaab7fa4c0:'/Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app/Contents/MacOS/ML Integration'>', hardenedRuntime='1'>'>: {
+    "com.apple.security.app-sandbox" = 1;
+    "com.apple.security.files.user-selected.read-only" = 1;
+}
+2026-04-18 00:55:10 +0000 [MT] Associated App Clip Identifiers Filter: Skipping because "com.apple.developer.associated-appclip-app-identifiers" is not present
+2026-04-18 00:55:10 +0000 [MT] Entitlements for <IDEDistributionItem: 0xaaca12d00; bundleID='TBDOInc.ML-Integration', path='<DVTFilePath:0xaaca41880:'/Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app'>', codeSigningInfo='<_DVTCodeSigningInformation_Path: 0xaacd842a0; isSigned='1', isAdHocSigned='0', signingCertificate='<DVTSigningCertificate: 0xaacafd740; name='Apple Development: tbdoadmin@proton.me (KN8BCDQ9Y9)', hash='58582AE9A384C26298AC21BD7CCC9046D9B36CCA', serialNumber='16B713CEEB6EFF26B40874682D80199E', certificateKinds='(
+    "1.2.840.113635.100.6.1.12",
+    "1.2.840.113635.100.6.1.2"
+), issueDate='2026-04-17 18:49:30 +0000''>', entitlements='{
+    "com.apple.security.app-sandbox" = 1;
+    "com.apple.security.files.user-selected.read-only" = 1;
+}', teamID='D5JH7G5ZVL', identifier='TBDOInc.ML-Integration', executablePath='<DVTFilePath:0xaab7fa4c0:'/Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app/Contents/MacOS/ML Integration'>', hardenedRuntime='1'>'> are: {
+    "com.apple.security.app-sandbox" = 1;
+    "com.apple.security.files.user-selected.read-only" = 1;
+}
+2026-04-18 00:55:10 +0000 [MT] Writing entitlements for <IDEDistributionItem: 0xaaca12d00; bundleID='TBDOInc.ML-Integration', path='<DVTFilePath:0xaaca41880:'/Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app'>', codeSigningInfo='<_DVTCodeSigningInformation_Path: 0xaacd842a0; isSigned='1', isAdHocSigned='0', signingCertificate='<DVTSigningCertificate: 0xaacafd740; name='Apple Development: tbdoadmin@proton.me (KN8BCDQ9Y9)', hash='58582AE9A384C26298AC21BD7CCC9046D9B36CCA', serialNumber='16B713CEEB6EFF26B40874682D80199E', certificateKinds='(
+    "1.2.840.113635.100.6.1.12",
+    "1.2.840.113635.100.6.1.2"
+), issueDate='2026-04-17 18:49:30 +0000''>', entitlements='{
+    "com.apple.security.app-sandbox" = 1;
+    "com.apple.security.files.user-selected.read-only" = 1;
+}', teamID='D5JH7G5ZVL', identifier='TBDOInc.ML-Integration', executablePath='<DVTFilePath:0xaab7fa4c0:'/Users/tbdoadmin/ML Integration/archives.xcarchive/Products/Applications/ML Integration.app/Contents/MacOS/ML Integration'>', hardenedRuntime='1'>'> to: /var/folders/xv/ws_pcp4536b022h5tw1smkf00000gn/T/XcodeDistPipeline.~~~kP8rVd/entitlements~~~mmw2up
+2026-04-18 00:55:10 +0000 [MT] invoking codesign: <NSConcreteTask: 0xaaa2948c0; launchPath='/usr/bin/codesign', arguments='(
+    "-f",
+    "-s",
+    58582AE9A384C26298AC21BD7CCC9046D9B36CCA,
+    "--entitlements",
+    "/var/folders/xv/ws_pcp4536b022h5tw1smkf00000gn/T/XcodeDistPipeline.~~~kP8rVd/entitlements~~~mmw2up",
+    "--preserve-metadata=identifier,flags,runtime,launch-constraints,library-constraints",
+    "--generate-entitlement-der",
+    "--strip-disallowed-xattrs",
+    "-vvv",
+    "/var/folders/xv/ws_pcp4536b022h5tw1smkf00000gn/T/XcodeDistPipeline.~~~kP8rVd/Root/Applications/ML Integration.app"
+)'>
+2026-04-18 00:55:11 +0000 [MT] codesign output: /var/folders/xv/ws_pcp4536b022h5tw1smkf00000gn/T/XcodeDistPipeline.~~~kP8rVd/Root/Applications/ML Integration.app: replacing existing signature
+/var/folders/xv/ws_pcp4536b022h5tw1smkf00000gn/T/XcodeDistPipeline.~~~kP8rVd/Root/Applications/ML Integration.app: signed app bundle with Mach-O universal (x86_64 arm64) [TBDOInc.ML-Integration]
+2026-04-18 00:55:11 +0000 [MT] Processing step: IDEDistributionZipODRItemStep
+2026-04-18 00:55:11 +0000 [MT] Skipping step: IDEDistributionZipODRItemStep because it said so
+2026-04-18 00:55:11 +0000 [MT] Processing step: IDEDistributionSkipPackagingStep
+2026-04-18 00:55:11 +0000 [MT] Processing step: IDEDistributionAppStoreInformationStep
+2026-04-18 00:55:11 +0000 [MT] Skipping step: IDEDistributionAppStoreInformationStep because it said so
+2026-04-18 00:55:11 +0000 [MT] Processing step: IDEDistributionGenerateProcessedDistributionItems
+2026-04-18 00:55:11 +0000 [MT] IDEDistributionItem init <DVTFilePath:0xaace38a00:'/var/folders/xv/ws_pcp4536b022h5tw1smkf00000gn/T/XcodeDistPipeline.~~~kP8rVd/Root/Applications/ML Integration.app'>
+2026-04-18 00:55:11 +0000 [MT] [OPTIONAL] Didn't find embedded provisioning profile for <DVTFilePath:0xaace38a00:'/var/folders/xv/ws_pcp4536b022h5tw1smkf00000gn/T/XcodeDistPipeline.~~~kP8rVd/Root/Applications/ML Integration.app'>: Error Domain=NSCocoaErrorDomain Code=4 "No file at <DVTFilePath:0xaacb867d0:'/var/folders/xv/ws_pcp4536b022h5tw1smkf00000gn/T/XcodeDistPipeline.~~~kP8rVd/Root/Applications/ML Integration.app/Contents/embedded.provisionprofile'>" UserInfo={NSLocalizedDescription=No file at <DVTFilePath:0xaacb867d0:'/var/folders/xv/ws_pcp4536b022h5tw1smkf00000gn/T/XcodeDistPipeline.~~~kP8rVd/Root/Applications/ML Integration.app/Contents/embedded.provisionprofile'>}
+2026-04-18 00:55:11 +0000 [MT] Processing step: IDEDistributionCreateManifestStep
+2026-04-18 00:55:11 +0000 [MT] Skipping step: IDEDistributionCreateManifestStep because it said so

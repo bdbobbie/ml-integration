@@ -1,0 +1,15 @@
+Installation Complete!
+
+ML Integration v1.0.0 has been successfully installed to your Applications folder.
+
+What's Next?
+• Launch ML Integration from Applications folder
+• Create your first Linux VM
+• Explore integration services
+• Configure shared resources and launchers
+
+Thank you for choosing ML Integration!
+
+© 2026 TBDO Inc. All rights reserved.
+https://tbdo.com
+support@tbdo.com

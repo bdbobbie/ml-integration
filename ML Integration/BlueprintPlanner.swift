@@ -242,7 +242,11 @@ final class BlueprintPlanner: ObservableObject {
 
         setReadinessCriterion(id: "environment-prereqs", isSatisfied: environmentReady)
         setReadinessCriterion(id: "lifecycle-states", isSatisfied: lifecycleReady)
-        setReadinessCriterion(id: "test-mode", isSatisfied: testModeReady)
+        // Keep this criterion sticky in normal mode so production hosts are not
+        // forced into test-root override just to pass readiness.
+        if testModeReady {
+            setReadinessCriterion(id: "test-mode", isSatisfied: true)
+        }
         setReadinessCriterion(id: "observability-enabled", isSatisfied: observabilityReady)
         setReadinessCriterion(id: "security-flow", isSatisfied: signals.securityFlowReady)
 
