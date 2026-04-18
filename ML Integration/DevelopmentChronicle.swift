@@ -122,9 +122,7 @@ final class DevelopmentChronicleStore: ObservableObject {
     private let decoder: JSONDecoder
 
     init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        let directory = appSupport.appendingPathComponent("MLIntegration", isDirectory: true)
+        let directory = RuntimeEnvironment.mlIntegrationRootURL()
 
         self.fileURL = directory.appendingPathComponent("development-chronicle.json", isDirectory: false)
         self.settingsURL = directory.appendingPathComponent("chronicle-settings.json", isDirectory: false)
@@ -187,6 +185,101 @@ final class DevelopmentChronicleStore: ObservableObject {
 
         entries.append(entry)
         save()
+    }
+
+    func logUniqueSystemEvent(
+        title: String,
+        details: String,
+        chapter: ChronicleChapter = .implementation,
+        relatedStageID: String? = nil
+    ) {
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedDetails = details.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTitle.isEmpty, !normalizedDetails.isEmpty else {
+            return
+        }
+
+        let alreadyLogged = entries.contains {
+            $0.title == normalizedTitle &&
+            $0.details == normalizedDetails &&
+            $0.relatedStageID == relatedStageID
+        }
+        guard !alreadyLogged else {
+            return
+        }
+
+        log(
+            kind: .system,
+            author: .system,
+            chapter: chapter,
+            title: normalizedTitle,
+            details: normalizedDetails,
+            relatedStageID: relatedStageID
+        )
+    }
+
+    func backfillSessionMilestonesIfNeeded() {
+        let sentinelStageID = "backfill-2026-04-runtime-readiness"
+        let hasBackfill = entries.contains { $0.relatedStageID == sentinelStageID }
+        guard !hasBackfill else {
+            return
+        }
+
+        let now = Date()
+        let milestones: [(String, String, String)] = [
+            ("Backfill: GitHub repository sync completed",
+             "Local project and origin/main were synchronized and push pipeline validated.",
+             "backfill-github-sync"),
+            ("Backfill: Uninstall path bug fixed",
+             "Cleanup now resolves VM directories via registry path and removes stale fallback paths safely.",
+             "backfill-uninstall-fix"),
+            ("Backfill: Persistent VM registry implemented",
+             "VM registry persistence and reconciliation were added to restore managed VM state across launches.",
+             "backfill-vm-registry"),
+            ("Backfill: Keychain token storage implemented",
+             "GitHub token load/save/clear now uses Keychain with UI controls and persistence behavior tests.",
+             "backfill-keychain"),
+            ("Backfill: CI and issue templates added",
+             "Repository gained CI workflow and issue templates for bugs and enhancements.",
+             "backfill-ci-templates"),
+            ("Backfill: Deterministic test mode added",
+             "Runtime pathing now supports test root override for isolated environment runs.",
+             "backfill-test-mode"),
+            ("Backfill: Install lifecycle state machine added",
+             "Installer lifecycle now tracks idle/validating/scaffolding/ready/failed states.",
+             "backfill-lifecycle"),
+            ("Backfill: Structured observability added",
+             "Correlation IDs, stage/result events, and run-report exports are now persisted.",
+             "backfill-observability"),
+            ("Backfill: Go/No-Go readiness gate added",
+             "Checklist-based readiness criteria and environment testing gate were implemented in UI.",
+             "backfill-readiness-gate"),
+            ("Backfill: Preflight evidence persistence added",
+             "Every preflight scan now emits timestamped JSON evidence artifacts for auditability.",
+             "backfill-preflight-evidence")
+        ]
+
+        for (index, milestone) in milestones.enumerated() {
+            log(
+                kind: .stepCompleted,
+                author: .ai,
+                chapter: .implementation,
+                title: milestone.0,
+                details: milestone.1,
+                relatedStageID: milestone.2,
+                timestamp: now.addingTimeInterval(TimeInterval(index))
+            )
+        }
+
+        log(
+            kind: .system,
+            author: .system,
+            chapter: .testing,
+            title: "Backfill marker",
+            details: "Session backfill completed for runtime readiness workstream.",
+            relatedStageID: sentinelStageID,
+            timestamp: now.addingTimeInterval(TimeInterval(milestones.count + 1))
+        )
     }
 
     func exportMarkdown() -> String {

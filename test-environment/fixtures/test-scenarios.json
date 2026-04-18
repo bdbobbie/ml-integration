@@ -1,0 +1,176 @@
+{
+  "testScenarios": {
+    "vmProvisioning": {
+      "description": "Test VM creation and lifecycle management",
+      "testCases": [
+        {
+          "name": "scaffold-ubuntu-apple-silicon",
+          "distribution": "ubuntu",
+          "architecture": "appleSilicon",
+          "runtime": "appleVirtualization",
+          "resources": {
+            "cpuCores": 4,
+            "memoryGB": 8,
+            "diskGB": 64
+          },
+          "expectedResults": {
+            "lifecycleState": "ready",
+            "vmRuntimeState": "stopped",
+            "artifactsCreated": [
+              "vm-directory",
+              "disk-image",
+              "efi-store"
+            ]
+          }
+        },
+        {
+          "name": "scaffold-fedora-intel",
+          "distribution": "fedora",
+          "architecture": "intel",
+          "runtime": "qemuFallback",
+          "resources": {
+            "cpuCores": 2,
+            "memoryGB": 6,
+            "diskGB": 64
+          },
+          "expectedResults": {
+            "lifecycleState": "ready",
+            "vmRuntimeState": "stopped",
+            "qemuScriptGenerated": true
+          }
+        }
+      ]
+    },
+    "integrationServices": {
+      "description": "Test shared resources and launcher generation",
+      "testCases": [
+        {
+          "name": "shared-resources-config",
+          "vmID": "test-vm-shared-resources",
+          "expectedArtifacts": [
+            "shared-resources.json",
+            "host-scripts/launch-linux-terminal.command",
+            "host-scripts/launch-linux-files.command",
+            "host-scripts/launch-linux-browser.command",
+            "guest-scripts/setup-shared-resources.sh"
+          ]
+        },
+        {
+          "name": "rootless-apps-config",
+          "vmID": "test-vm-rootless",
+          "expectedArtifacts": [
+            "rootless-apps.json",
+            "guest-scripts/bootstrap-rootless.sh",
+            "host-scripts/attach-rootless.command"
+          ]
+        }
+      ]
+    },
+    "healthAndRepair": {
+      "description": "Test health checks and automatic repair",
+      "testCases": [
+        {
+          "name": "health-check-intact",
+          "vmID": "test-vm-healthy",
+          "expectedStatus": "all-ok",
+          "expectedWarnings": 0
+        },
+        {
+          "name": "health-check-damaged",
+          "vmID": "test-vm-damaged",
+          "expectedStatus": "warnings-present",
+          "expectedWarnings": ">=3"
+        },
+        {
+          "name": "auto-heal-repair",
+          "vmID": "test-vm-repair",
+          "expectedActions": [
+            "regenerated-shared-resources",
+            "regenerated-launcher-package",
+            "regenerated-rootless-package"
+          ]
+        }
+      ]
+    },
+    "securityAndCredentials": {
+      "description": "Test keychain token management and signature verification",
+      "testCases": [
+        {
+          "name": "token-save-load-clear",
+          "testToken": "test-github-token-12345",
+          "expectedOperations": [
+            "save-success",
+            "load-success", 
+            "clear-success"
+          ]
+        },
+        {
+          "name": "signature-verification-valid",
+          "artifact": "ubuntu-24.04.4-desktop-arm64.iso",
+          "expectedResult": "verification-passed"
+        },
+        {
+          "name": "signature-verification-invalid",
+          "artifact": "corrupted-ubuntu.iso",
+          "expectedResult": "verification-failed"
+        }
+      ]
+    },
+    "cleanupAndUninstall": {
+      "description": "Test VM removal and cleanup verification",
+      "testCases": [
+        {
+          "name": "uninstall-with-artifacts",
+          "vmID": "test-vm-uninstall-full",
+          "removeArtifacts": true,
+          "expectedResults": [
+            "vm-registry-entry-removed",
+            "vm-directory-removed",
+            "integration-directory-removed",
+            "cleanup-receipt-created"
+          ]
+        },
+        {
+          "name": "uninstall-registry-only",
+          "vmID": "test-vm-uninstall-registry",
+          "removeArtifacts": false,
+          "expectedResults": [
+            "vm-registry-entry-removed",
+            "vm-directory-intact",
+            "cleanup-receipt-created"
+          ]
+        }
+      ]
+    }
+  },
+  "performanceBenchmarks": {
+    "downloadSpeed": {
+      "description": "Measure ISO download speed with optimizations",
+      "testFiles": [
+        {
+          "name": "small-iso",
+          "sizeMB": 50,
+          "expectedTimeSeconds": "<10"
+        },
+        {
+          "name": "large-iso", 
+          "sizeMB": 500,
+          "expectedTimeSeconds": "<60"
+        }
+      ]
+    },
+    "catalogRefresh": {
+      "description": "Measure catalog refresh performance with caching",
+      "scenarios": [
+        {
+          "name": "first-refresh",
+          "expectedTimeSeconds": "<5"
+        },
+        {
+          "name": "cached-refresh",
+          "expectedTimeSeconds": "<1"
+        }
+      ]
+    }
+  }
+}

@@ -70,11 +70,7 @@ final class DefaultHealthAndRepairService: HealthAndRepairService {
     }
 
     private func integrationPaths(for vmID: UUID) -> IntegrationHealthPaths {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-
-        let integrationDirectory = base
-            .appendingPathComponent("MLIntegration", isDirectory: true)
+        let integrationDirectory = RuntimeEnvironment.mlIntegrationRootURL()
             .appendingPathComponent("integration", isDirectory: true)
             .appendingPathComponent(vmID.uuidString, isDirectory: true)
 

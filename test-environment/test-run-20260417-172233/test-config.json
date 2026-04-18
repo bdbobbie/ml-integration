@@ -1,0 +1,16 @@
+{
+  "testEnvironment": {
+    "root": "/Users/tbdoadmin/ML Integration/test-environment/test-run-20260417-172233",
+    "mlIntegrationData": "/Users/tbdoadmin/ML Integration/test-environment/test-run-20260417-172233/ml-integration-data",
+    "vmImagesPath": "/Users/tbdoadmin/ML Integration/test-environment/test-run-20260417-172233/vm-images",
+    "logsPath": "/Users/tbdoadmin/ML Integration/test-environment/test-run-20260417-172233/logs",
+    "reportsPath": "/Users/tbdoadmin/ML Integration/test-environment/test-run-20260417-172233/reports"
+  },
+  "testScenarios": [
+    "vm-provisioning",
+    "integration-services",
+    "health-checks",
+    "cleanup-operations",
+    "security-credentials"
+  ]
+}

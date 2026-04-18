@@ -207,10 +207,7 @@ final class DefaultEscalationService: EscalationService, EscalationConfigurable,
     }
 
     private func writeEscalationDraft(subject: String, body: String, attachments: [URL]) throws -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        let dir = base
-            .appendingPathComponent("MLIntegration", isDirectory: true)
+        let dir = RuntimeEnvironment.mlIntegrationRootURL()
             .appendingPathComponent("escalations", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 

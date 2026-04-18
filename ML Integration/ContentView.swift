@@ -1,3 +1,8 @@
+//
+//  ML Integration
+//  Copyright © 2026 TBDO Inc. All rights reserved.
+//
+
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
@@ -32,6 +37,14 @@ struct ContentView: View {
     @State private var exportStatusMessage: String = ""
     @State private var lastExportPath: String = ""
     @State private var bookEditionDraft: String = ""
+    @State private var lastLoggedVMStatus: String = ""
+    @State private var lastLoggedHealthStatus: String = ""
+    @State private var lastLoggedCleanupStatus: String = ""
+    @State private var lastLoggedEscalationStatus: String = ""
+    @State private var lastLoggedObservabilityStatus: String = ""
+    @State private var lastLoggedPreflightStatus: String = ""
+    @State private var importedBuildPassed: Bool = true
+    @State private var importedTestsPassed: Bool = true
 
     @StateObject private var planner = BlueprintPlanner()
     @StateObject private var chronicle = DevelopmentChronicleStore()
@@ -40,6 +53,18 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section("About") {
+                    Text("ML Integration")
+                        .font(.largeTitle)
+                    Text("Version 1.0")
+                        .font(.subheadline)
+                    Text("© 2026 TBDO Inc. All rights reserved.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("Seamless Linux virtualization for macOS with comprehensive VM lifecycle management.")
+                        .font(.body)
+                }
+                
                 Section("Vision") {
                     Text("Blueprint for Linux VM installation and integration on Intel and Apple Silicon Macs, using virtualization-first architecture.")
                 }
@@ -224,6 +249,64 @@ struct ContentView: View {
                 }
 
                 Section("VM Pipeline Scaffold") {
+                    Text("Install lifecycle: \(runtimeWorkbench.installLifecycleState.rawValue)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if !runtimeWorkbench.installLifecycleDetail.isEmpty {
+                        Text(runtimeWorkbench.installLifecycleDetail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("VM runtime state: \(runtimeWorkbench.vmRuntimeState.rawValue)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if !runtimeWorkbench.vmRuntimeStatusMessage.isEmpty {
+                        Text(runtimeWorkbench.vmRuntimeStatusMessage)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Button("Start VM") {
+                            Task {
+                                await runtimeWorkbench.startActiveVM()
+                            }
+                        }
+                        Button("Stop VM") {
+                            Task {
+                                await runtimeWorkbench.stopActiveVM()
+                            }
+                        }
+                        Button("Restart VM") {
+                            Task {
+                                await runtimeWorkbench.restartActiveVM()
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    if let runID = runtimeWorkbench.currentRunID {
+                        Text("Run ID: \(runID.uuidString)")
+                            .font(.caption2)
+                            .textSelection(.enabled)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("Export Current Run Report") {
+                        Task {
+                            await runtimeWorkbench.exportCurrentRunReport()
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    if !runtimeWorkbench.observabilityStatusMessage.isEmpty {
+                        Text(runtimeWorkbench.observabilityStatusMessage)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !runtimeWorkbench.lastRunReportPath.isEmpty {
+                        Text("Run report path: \(runtimeWorkbench.lastRunReportPath)")
+                            .font(.caption2)
+                            .textSelection(.enabled)
+                            .foregroundStyle(.secondary)
+                    }
+
                     TextField("VM name", text: $vmName)
                     TextField("Installer image path (ISO/RAW)", text: $installerImagePath)
                     if !runtimeWorkbench.downloadedInstallerPath.isEmpty {
@@ -477,6 +560,102 @@ struct ContentView: View {
                     }
                 }
 
+                Section("Readiness Gate") {
+                    Text(planner.readinessProgressSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(planner.isReadyForEnvironmentTesting ? "GO: Ready for environment testing" : "NO-GO: Complete remaining readiness criteria")
+                        .font(.subheadline)
+                        .foregroundStyle(planner.isReadyForEnvironmentTesting ? .green : .orange)
+
+                    Button("Run Preflight Scan") {
+                        let snapshot = runtimeWorkbench.makePreflightSnapshot()
+                        planner.applyPreflightScan(snapshot)
+                        autoSyncChecklistFromRuntime()
+                    }
+                    .buttonStyle(.borderless)
+
+                    Toggle("Imported build passed", isOn: $importedBuildPassed)
+                    Toggle("Imported tests passed", isOn: $importedTestsPassed)
+                    Button("Auto-Sync Checklist from Runtime Signals") {
+                        autoSyncChecklistFromRuntime()
+                    }
+                    .buttonStyle(.borderless)
+                    Button("Start Environment Testing") {
+                        _ = planner.startEnvironmentTestingIfReady()
+                    }
+                    .buttonStyle(.borderless)
+
+                    if !planner.preflightStatusMessage.isEmpty {
+                        Text(planner.preflightStatusMessage)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if !planner.lastPreflightEvidencePath.isEmpty {
+                        Text("Evidence path: \(planner.lastPreflightEvidencePath)")
+                            .font(.caption2)
+                            .textSelection(.enabled)
+                            .foregroundStyle(.secondary)
+
+                        HStack {
+                            Button("Copy Evidence Path") {
+                                let pasteboard = NSPasteboard.general
+                                pasteboard.clearContents()
+                                pasteboard.setString(planner.lastPreflightEvidencePath, forType: .string)
+                            }
+                            Button("Open Evidence Folder") {
+                                let directory = URL(fileURLWithPath: planner.lastPreflightEvidencePath).deletingLastPathComponent()
+                                NSWorkspace.shared.open(directory)
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+
+                    ForEach(planner.preflightFindings, id: \.self) { finding in
+                        Text(finding)
+                            .font(.caption2)
+                            .foregroundStyle(finding.hasPrefix("WARN") ? .orange : .secondary)
+                    }
+
+                    if !planner.checklistAutoSyncStatusMessage.isEmpty {
+                        Text(planner.checklistAutoSyncStatusMessage)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if !planner.environmentTestStartStatusMessage.isEmpty {
+                        Text(planner.environmentTestStartStatusMessage)
+                            .font(.caption2)
+                            .foregroundStyle(planner.environmentTestingStarted ? .green : .orange)
+                    }
+                    if !planner.lastGoNoGoReportPath.isEmpty {
+                        Text("Go/No-Go report: \(planner.lastGoNoGoReportPath)")
+                            .font(.caption2)
+                            .textSelection(.enabled)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    ForEach(planner.readinessCriteria) { criterion in
+                        Toggle(
+                            isOn: Binding(
+                                get: { criterion.isSatisfied },
+                                set: { newValue in
+                                    planner.setReadinessCriterion(id: criterion.id, isSatisfied: newValue)
+                                }
+                            )
+                        ) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(criterion.title)
+                                Text(criterion.detail)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
                 if showInternalChronicle {
                     Section("Book Edition") {
                         TextField("Book edition (e.g., v1, v2)", text: $bookEditionDraft)
@@ -577,6 +756,7 @@ struct ContentView: View {
             .navigationTitle("ML Integration Blueprint")
             .onAppear {
                 runtimeWorkbench.refreshKeyringStatus(for: selectedCatalogDistribution)
+                chronicle.backfillSessionMilestonesIfNeeded()
 
                 Task {
                     await runtimeWorkbench.restoreVMRegistryState()
@@ -602,6 +782,55 @@ struct ContentView: View {
                 Task {
                     await runtimeWorkbench.refreshCatalog(for: newValue)
                 }
+            }
+            .onChange(of: runtimeWorkbench.vmStatusMessage) { _, newValue in
+                autoLogStatus(
+                    key: .vm,
+                    value: newValue,
+                    title: "Runtime VM status update",
+                    chapter: .implementation
+                )
+            }
+            .onChange(of: runtimeWorkbench.healthStatusMessage) { _, newValue in
+                autoLogStatus(
+                    key: .health,
+                    value: newValue,
+                    title: "Runtime health status update",
+                    chapter: .testing
+                )
+            }
+            .onChange(of: runtimeWorkbench.cleanupStatusMessage) { _, newValue in
+                autoLogStatus(
+                    key: .cleanup,
+                    value: newValue,
+                    title: "Runtime cleanup status update",
+                    chapter: .testing
+                )
+            }
+            .onChange(of: runtimeWorkbench.escalationStatusMessage) { _, newValue in
+                autoLogStatus(
+                    key: .escalation,
+                    value: newValue,
+                    title: "Runtime escalation status update",
+                    chapter: .revisions
+                )
+            }
+            .onChange(of: runtimeWorkbench.observabilityStatusMessage) { _, newValue in
+                autoLogStatus(
+                    key: .observability,
+                    value: newValue,
+                    title: "Runtime observability status update",
+                    chapter: .testing
+                )
+            }
+            .onChange(of: planner.preflightStatusMessage) { _, newValue in
+                autoLogStatus(
+                    key: .preflight,
+                    value: newValue,
+                    title: "Readiness preflight status update",
+                    chapter: .testing
+                )
+                autoSyncChecklistFromRuntime()
             }
             .onChange(of: selectedCatalogDistribution) { _, newValue in
                 runtimeWorkbench.refreshKeyringStatus(for: newValue)
@@ -665,6 +894,70 @@ struct ContentView: View {
         manualNote = ""
         screenshotRefsRaw = ""
         markdownPreview = chronicle.exportMarkdown()
+    }
+
+    private enum AutoLogKey {
+        case vm
+        case health
+        case cleanup
+        case escalation
+        case observability
+        case preflight
+    }
+
+    private func autoLogStatus(
+        key: AutoLogKey,
+        value: String,
+        title: String,
+        chapter: ChronicleChapter
+    ) {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+
+        let previous: String
+        switch key {
+        case .vm: previous = lastLoggedVMStatus
+        case .health: previous = lastLoggedHealthStatus
+        case .cleanup: previous = lastLoggedCleanupStatus
+        case .escalation: previous = lastLoggedEscalationStatus
+        case .observability: previous = lastLoggedObservabilityStatus
+        case .preflight: previous = lastLoggedPreflightStatus
+        }
+
+        guard normalized != previous else { return }
+
+        chronicle.logUniqueSystemEvent(
+            title: title,
+            details: normalized,
+            chapter: chapter
+        )
+
+        switch key {
+        case .vm: lastLoggedVMStatus = normalized
+        case .health: lastLoggedHealthStatus = normalized
+        case .cleanup: lastLoggedCleanupStatus = normalized
+        case .escalation: lastLoggedEscalationStatus = normalized
+        case .observability: lastLoggedObservabilityStatus = normalized
+        case .preflight: lastLoggedPreflightStatus = normalized
+        }
+
+        if showInternalChronicle {
+            markdownPreview = chronicle.exportMarkdown()
+        }
+    }
+
+    private func autoSyncChecklistFromRuntime() {
+        let snapshot = runtimeWorkbench.makePreflightSnapshot()
+        let keyringStatuses = runtimeWorkbench.requiredKeyringStatuses
+        let securityFlowReady = keyringStatuses.isEmpty || keyringStatuses.values.allSatisfy { $0 }
+        let signals = ReadinessChecklistSignals(
+            snapshot: snapshot,
+            preflightEvidenceExists: !planner.lastPreflightEvidencePath.isEmpty,
+            securityFlowReady: securityFlowReady,
+            buildPassed: importedBuildPassed,
+            testsPassed: importedTestsPassed
+        )
+        planner.autoSyncChecklist(with: signals)
     }
 
     private var screenshotReferencesFromField: [ScreenshotReference] {

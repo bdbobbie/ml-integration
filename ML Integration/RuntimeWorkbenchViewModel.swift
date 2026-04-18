@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Virtualization
 
 @MainActor
 final class RuntimeWorkbenchViewModel: ObservableObject {
@@ -15,6 +16,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var requiredKeyringStatuses: [String: Bool] = [:]
 
     @Published private(set) var vmStatusMessage: String = ""
+    @Published private(set) var installLifecycleState: VMInstallLifecycleState = .idle
+    @Published private(set) var installLifecycleDetail: String = ""
+    @Published private(set) var vmRuntimeState: VMRuntimeState = .stopped
+    @Published private(set) var vmRuntimeStatusMessage: String = ""
     @Published private(set) var integrationStatusMessage: String = ""
     @Published private(set) var healthStatusMessage: String = ""
     @Published private(set) var healthReport: [String] = []
@@ -23,6 +28,9 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var escalationStatusMessage: String = ""
     @Published private(set) var lastEscalationIssueURL: URL?
     @Published private(set) var registryStatusMessage: String = ""
+    @Published private(set) var currentRunID: UUID?
+    @Published private(set) var observabilityStatusMessage: String = ""
+    @Published private(set) var lastRunReportPath: String = ""
     @Published private(set) var activeVMID: UUID?
     @Published private(set) var lastManagedVMID: UUID?
 
@@ -38,9 +46,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private let escalationService: EscalationService
     private let downloader: ArtifactDownloading
     private let registry: VMRegistryManaging
+    private let observability: RuntimeObservabilityLogging
 
     private var lastCatalogRefresh: Date?
     private let sourceMonitoringInterval: TimeInterval = 60 * 30
+    private var cachedArtifacts: [HostArchitecture: [DistributionArtifact]] = [:]
 
     init(
         hostService: HostProfileService = DefaultHostProfileService(),
@@ -51,7 +61,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         uninstallService: UninstallCleanupService = DefaultUninstallCleanupService(),
         escalationService: EscalationService = DefaultEscalationService(),
         downloader: ArtifactDownloading = ResumableArtifactDownloader(),
-        registry: VMRegistryManaging = PersistentVMRegistryStore()
+        registry: VMRegistryManaging = PersistentVMRegistryStore(),
+        observability: RuntimeObservabilityLogging = FileRuntimeObservabilityStore()
     ) {
         self.hostService = hostService
         self.catalogService = catalogService
@@ -62,12 +73,30 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         self.escalationService = escalationService
         self.downloader = downloader
         self.registry = registry
+        self.observability = observability
     }
 
     func restoreVMRegistryState() async {
+        do {
+            let runID = try await observability.beginRun(vmID: nil)
+            currentRunID = runID
+            try await observability.appendEvent(
+                runID: runID,
+                vmID: nil,
+                stage: .registryRestore,
+                result: .inProgress,
+                message: "Starting registry restore."
+            )
+        } catch {
+            observabilityStatusMessage = "Observability init failed: \(error.localizedDescription)"
+        }
+
         let entries = await registry.allEntries()
         if entries.isEmpty {
             registryStatusMessage = "VM registry is empty."
+            installLifecycleState = .idle
+            installLifecycleDetail = "No persisted VM install scaffolds were found."
+            await logRunEvent(stage: .registryRestore, result: .success, vmID: nil, message: "Registry restore finished with no entries.")
             return
         }
 
@@ -92,6 +121,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                     prunedCount += 1
                 } catch {
                     registryStatusMessage = "Registry reconciliation failed: \(error.localizedDescription)"
+                    await logRunEvent(stage: .registryRestore, result: .failed, vmID: entry.id, message: error.localizedDescription)
                     return
                 }
             }
@@ -101,10 +131,24 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             lastManagedVMID = latest.id
             if FileManager.default.fileExists(atPath: latest.vmDirectoryPath) {
                 activeVMID = latest.id
+                installLifecycleState = .ready
+                installLifecycleDetail = "Restored VM scaffold from registry for \(latest.vmName)."
+                vmRuntimeState = .stopped
+                vmRuntimeStatusMessage = "Restored VM scaffold is currently stopped."
             }
+        } else {
+            installLifecycleState = .idle
+            installLifecycleDetail = "No valid VM scaffold entries were restored."
+            vmRuntimeState = .stopped
         }
 
         registryStatusMessage = "Registry restored \(validEntries.count) VM entries, pruned \(prunedCount) stale entries."
+        await logRunEvent(
+            stage: .registryRestore,
+            result: .success,
+            vmID: activeVMID,
+            message: "Registry restored \(validEntries.count) entries and pruned \(prunedCount)."
+        )
     }
 
     func loadStoredGitHubToken() -> String {
@@ -154,6 +198,37 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
     }
 
+    func exportCurrentRunReport() async {
+        guard let runID = currentRunID else {
+            observabilityStatusMessage = "No run is active yet."
+            lastRunReportPath = ""
+            return
+        }
+
+        do {
+            let reportURL = try await observability.exportReport(runID: runID)
+            lastRunReportPath = reportURL.path
+            observabilityStatusMessage = "Run report ready: \(reportURL.path)"
+        } catch {
+            observabilityStatusMessage = "Run report export failed: \(error.localizedDescription)"
+            lastRunReportPath = ""
+        }
+    }
+
+    func makePreflightSnapshot() -> ReadinessPreflightSnapshot {
+        let testRootEnabled = !(ProcessInfo.processInfo.environment[RuntimeEnvironment.testRootEnvironmentVariable] ?? "").isEmpty
+        return ReadinessPreflightSnapshot(
+            hostProfile: hostProfile,
+            virtualizationSupported: VZVirtualMachine.isSupported,
+            catalogHasArtifacts: !artifacts.isEmpty,
+            catalogErrorMessage: catalogErrorMessage,
+            installLifecycleState: installLifecycleState,
+            hasManagedVM: (activeVMID != nil) || (lastManagedVMID != nil),
+            testRootOverrideEnabled: testRootEnabled,
+            currentRunID: currentRunID
+        )
+    }
+
     func detectHost() async {
         do {
             let profile = try await hostService.detectHostProfile()
@@ -165,15 +240,20 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     func refreshCatalog(for architecture: HostArchitecture, force: Bool = false) async {
-        if !force,
-           let lastCatalogRefresh,
-           Date().timeIntervalSince(lastCatalogRefresh) < sourceMonitoringInterval {
+        guard force || lastCatalogRefresh == nil || Date().timeIntervalSince(lastCatalogRefresh!) > sourceMonitoringInterval else {
+            // Return cached artifacts if available and not forcing refresh
+            if let cached = cachedArtifacts[architecture], !cached.isEmpty {
+                artifacts = cached
+                return
+            }
             return
         }
 
         do {
-            artifacts = try await catalogService.fetchArtifacts(for: architecture)
             catalogErrorMessage = ""
+            let fetched = try await catalogService.fetchArtifacts(for: architecture)
+            artifacts = fetched
+            cachedArtifacts[architecture] = fetched // Cache the results
             lastCatalogRefresh = Date()
         } catch {
             catalogErrorMessage = error.localizedDescription
@@ -252,6 +332,13 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             return
         }
 
+        await logRunEvent(
+            stage: .artifactDownload,
+            result: .inProgress,
+            vmID: activeVMID,
+            message: "Downloading \(artifact.distribution.rawValue) \(artifact.version)."
+        )
+
         do {
             let downloadsDir = try downloadsDirectory()
             let destinationURL = downloadsDir.appendingPathComponent(artifact.downloadURL.lastPathComponent)
@@ -277,8 +364,20 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 : "Checksum verified for downloaded installer."
 
             await verifySignature(artifact: artifact)
+            await logRunEvent(
+                stage: .artifactDownload,
+                result: .success,
+                vmID: activeVMID,
+                message: "Download succeeded at \(destinationURL.path)."
+            )
         } catch {
             downloadStatusMessage = "Download failed: \(error.localizedDescription)"
+            await logRunEvent(
+                stage: .artifactDownload,
+                result: .failed,
+                vmID: activeVMID,
+                message: error.localizedDescription
+            )
         }
     }
 
@@ -291,6 +390,18 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         kernelImagePath: String,
         initialRamdiskPath: String
     ) async {
+        do {
+            let runID = try await observability.beginRun(vmID: nil)
+            currentRunID = runID
+            observabilityStatusMessage = "Started run \(runID.uuidString)."
+        } catch {
+            observabilityStatusMessage = "Observability init failed: \(error.localizedDescription)"
+        }
+
+        installLifecycleState = .validating
+        installLifecycleDetail = ""
+        await logRunEvent(stage: .installValidation, result: .inProgress, vmID: nil, message: "Validating install request.")
+
         let request = VMInstallRequest(
             distribution: distribution,
             runtimeEngine: runtime,
@@ -320,12 +431,79 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 initialRamdiskPath: initialRamdiskPath
             )
 
+            installLifecycleState = .scaffolding
+            await logRunEvent(stage: .installScaffolding, result: .inProgress, vmID: nil, message: "Scaffolding VM assets.")
             let vmID = try await provisioningService.installVM(using: request, assets: assets)
             activeVMID = vmID
             lastManagedVMID = vmID
+            installLifecycleState = .ready
+            installLifecycleDetail = "Install scaffold completed for VM \(vmID.uuidString)."
+            vmRuntimeState = .stopped
+            vmRuntimeStatusMessage = "VM scaffold is ready and currently stopped."
             vmStatusMessage = "VM pipeline scaffolded with automation assets when supported. ID: \(vmID.uuidString). VM assets at: \(assets.vmDirectoryURL.path)"
+            await logRunEvent(stage: .installReady, result: .success, vmID: vmID, message: installLifecycleDetail)
         } catch {
+            installLifecycleState = .failed
+            installLifecycleDetail = error.localizedDescription
             vmStatusMessage = "VM pipeline failed: \(error.localizedDescription)"
+            await logRunEvent(stage: .installScaffolding, result: .failed, vmID: nil, message: error.localizedDescription)
+        }
+    }
+
+    func startActiveVM() async {
+        guard let vmID = activeVMID else {
+            vmRuntimeStatusMessage = IntegrationRuntimeError.vmNotSelected.localizedDescription
+            return
+        }
+
+        vmRuntimeState = .starting
+        await logRunEvent(stage: .vmRuntimeControl, result: .inProgress, vmID: vmID, message: "Starting VM runtime.")
+
+        do {
+            try await provisioningService.startVM(id: vmID)
+            vmRuntimeState = .running
+            vmRuntimeStatusMessage = "VM \(vmID.uuidString) is running."
+            await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: vmRuntimeStatusMessage)
+        } catch {
+            vmRuntimeState = .failed
+            vmRuntimeStatusMessage = "Start VM failed: \(error.localizedDescription)"
+            await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
+        }
+    }
+
+    func stopActiveVM() async {
+        guard let vmID = activeVMID else {
+            vmRuntimeStatusMessage = IntegrationRuntimeError.vmNotSelected.localizedDescription
+            return
+        }
+
+        vmRuntimeState = .stopping
+        await logRunEvent(stage: .vmRuntimeControl, result: .inProgress, vmID: vmID, message: "Stopping VM runtime.")
+
+        do {
+            try await provisioningService.stopVM(id: vmID)
+            vmRuntimeState = .stopped
+            vmRuntimeStatusMessage = "VM \(vmID.uuidString) is stopped."
+            await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: vmRuntimeStatusMessage)
+        } catch {
+            vmRuntimeState = .failed
+            vmRuntimeStatusMessage = "Stop VM failed: \(error.localizedDescription)"
+            await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
+        }
+    }
+
+    func restartActiveVM() async {
+        guard activeVMID != nil else {
+            vmRuntimeStatusMessage = IntegrationRuntimeError.vmNotSelected.localizedDescription
+            return
+        }
+
+        vmRuntimeState = .restarting
+        await stopActiveVM()
+        if vmRuntimeState == .failed { return }
+        await startActiveVM()
+        if vmRuntimeState == .running {
+            vmRuntimeStatusMessage = "VM restart completed."
         }
     }
 
@@ -336,14 +514,18 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             return
         }
 
+        await logRunEvent(stage: .healthCheck, result: .inProgress, vmID: vmID, message: "Running health checks.")
+
         do {
             let report = try await healthService.runHealthCheck(for: vmID)
             healthReport = report
             let warnings = report.filter { $0.hasPrefix("WARN") }.count
             healthStatusMessage = "Health check finished for VM \(vmID.uuidString). Warnings: \(warnings)."
+            await logRunEvent(stage: .healthCheck, result: .success, vmID: vmID, message: healthStatusMessage)
         } catch {
             healthStatusMessage = "Health check failed: \(error.localizedDescription)"
             healthReport = []
+            await logRunEvent(stage: .healthCheck, result: .failed, vmID: vmID, message: error.localizedDescription)
         }
     }
 
@@ -353,12 +535,16 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             return
         }
 
+        await logRunEvent(stage: .autoHeal, result: .inProgress, vmID: vmID, message: "Applying automatic repair.")
+
         do {
             let actions = try await healthService.applyAutomaticRepair(for: vmID)
             healthReport = actions
             healthStatusMessage = "Auto-heal completed for VM \(vmID.uuidString)."
+            await logRunEvent(stage: .autoHeal, result: .success, vmID: vmID, message: healthStatusMessage)
         } catch {
             healthStatusMessage = "Auto-heal failed: \(error.localizedDescription)"
+            await logRunEvent(stage: .autoHeal, result: .failed, vmID: vmID, message: error.localizedDescription)
         }
     }
 
@@ -369,6 +555,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             return
         }
 
+        await logRunEvent(stage: .cleanup, result: .inProgress, vmID: vmID, message: "Running uninstall and cleanup.")
+
         do {
             try await uninstallService.uninstallVM(id: vmID, removeArtifacts: removeArtifacts)
             let report = try await uninstallService.verifyCleanup(id: vmID)
@@ -376,9 +564,15 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             cleanupStatusMessage = "Uninstall completed for VM \(vmID.uuidString)."
             lastManagedVMID = vmID
             activeVMID = nil
+            installLifecycleState = .idle
+            installLifecycleDetail = "No active VM install scaffold is currently selected."
+            vmRuntimeState = .stopped
+            vmRuntimeStatusMessage = "No active VM runtime."
+            await logRunEvent(stage: .cleanup, result: .success, vmID: vmID, message: cleanupStatusMessage)
         } catch {
             cleanupStatusMessage = "Uninstall failed: \(error.localizedDescription)"
             cleanupReport = []
+            await logRunEvent(stage: .cleanup, result: .failed, vmID: vmID, message: error.localizedDescription)
         }
     }
 
@@ -429,6 +623,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         do {
             let diagnostics = includeDiagnostics ? try createDiagnosticsBundle(title: title, details: details) : nil
             var outcomes: [String] = []
+            await logRunEvent(stage: .escalation, result: .inProgress, vmID: activeVMID, message: "Preparing escalation request.")
 
             if sendGitHubIssue {
                 let issueURL = try await escalationService.openGitHubIssue(
@@ -455,17 +650,15 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             } else {
                 escalationStatusMessage = outcomes.joined(separator: " | ")
             }
+            await logRunEvent(stage: .escalation, result: .success, vmID: activeVMID, message: escalationStatusMessage)
         } catch {
             escalationStatusMessage = "Escalation failed: \(error.localizedDescription)"
+            await logRunEvent(stage: .escalation, result: .failed, vmID: activeVMID, message: error.localizedDescription)
         }
     }
 
     private func createDiagnosticsBundle(title: String, details: String) throws -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-
-        let diagnosticsDir = base
-            .appendingPathComponent("MLIntegration", isDirectory: true)
+        let diagnosticsDir = baseDirectory()
             .appendingPathComponent("diagnostics", isDirectory: true)
 
         try FileManager.default.createDirectory(at: diagnosticsDir, withIntermediateDirectories: true)
@@ -533,11 +726,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     private func downloadsDirectory() throws -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-
-        let directory = base
-            .appendingPathComponent("MLIntegration", isDirectory: true)
+        let directory = baseDirectory()
             .appendingPathComponent("downloads", isDirectory: true)
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -545,11 +734,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     private func keyringDirectoryURL() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-
-        let directory = base
-            .appendingPathComponent("MLIntegration", isDirectory: true)
+        let directory = baseDirectory()
             .appendingPathComponent("keys", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -567,10 +752,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             throw RuntimeServiceError.invalidVMRequest("VM name must not be empty.")
         }
 
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        let vmDirectory = base
-            .appendingPathComponent("MLIntegration", isDirectory: true)
+        let vmDirectory = baseDirectory()
             .appendingPathComponent("vms", isDirectory: true)
             .appendingPathComponent(resolvedName, isDirectory: true)
 
@@ -600,9 +782,34 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return URL(fileURLWithPath: trimmed)
     }
 
+    private func logRunEvent(
+        stage: RuntimeRunStage,
+        result: RuntimeRunResult,
+        vmID: UUID?,
+        message: String
+    ) async {
+        do {
+            let runID: UUID
+            if let currentRunID {
+                runID = currentRunID
+            } else {
+                runID = try await observability.beginRun(vmID: vmID)
+                currentRunID = runID
+            }
+
+            try await observability.appendEvent(
+                runID: runID,
+                vmID: vmID,
+                stage: stage,
+                result: result,
+                message: message
+            )
+        } catch {
+            observabilityStatusMessage = "Observability logging failed: \(error.localizedDescription)"
+        }
+    }
+
     private func baseDirectory() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        return appSupport.appendingPathComponent("MLIntegration", isDirectory: true)
+        RuntimeEnvironment.mlIntegrationRootURL()
     }
 }

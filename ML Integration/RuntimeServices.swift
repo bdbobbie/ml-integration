@@ -231,9 +231,10 @@ actor ResumableArtifactDownloader: ArtifactDownloading {
         }
 
         var buffer = Data()
+        buffer.reserveCapacity(128 * 1024) // Pre-allocate larger buffer for better performance
         for try await byte in bytes {
             buffer.append(byte)
-            if buffer.count >= 64 * 1024 {
+            if buffer.count >= 128 * 1024 { // Increased buffer size for fewer writes
                 try handle.write(contentsOf: buffer)
                 buffer.removeAll(keepingCapacity: true)
             }
@@ -424,9 +425,7 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
     }
 
     private func keyringDirectoryURL() throws -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        let keyringDirectory = base.appendingPathComponent("MLIntegration", isDirectory: true)
+        let keyringDirectory = RuntimeEnvironment.mlIntegrationRootURL()
             .appendingPathComponent("keys", isDirectory: true)
         try FileManager.default.createDirectory(at: keyringDirectory, withIntermediateDirectories: true)
         return keyringDirectory

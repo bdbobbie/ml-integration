@@ -42,7 +42,28 @@ enum LinuxDistribution: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
 }
 
-struct HostProfile: Equatable {
+enum VMInstallLifecycleState: String, CaseIterable, Identifiable, Codable {
+    case idle
+    case validating
+    case scaffolding
+    case ready
+    case failed
+
+    var id: String { rawValue }
+}
+
+enum VMRuntimeState: String, CaseIterable, Identifiable, Codable {
+    case stopped
+    case starting
+    case running
+    case stopping
+    case restarting
+    case failed
+
+    var id: String { rawValue }
+}
+
+struct HostProfile: Equatable, Codable {
     let architecture: HostArchitecture
     let cpuCores: Int
     let memoryGB: Int
@@ -89,4 +110,65 @@ struct StageDefinition: Identifiable, Equatable {
     let summary: String
     var status: BlueprintStageStatus
     let ownedBy: String
+}
+
+struct ReadinessCriterion: Identifiable, Equatable, Codable {
+    let id: String
+    let title: String
+    let detail: String
+    var isSatisfied: Bool
+}
+
+struct ReadinessPreflightSnapshot: Equatable, Codable {
+    let hostProfile: HostProfile?
+    let virtualizationSupported: Bool
+    let catalogHasArtifacts: Bool
+    let catalogErrorMessage: String
+    let installLifecycleState: VMInstallLifecycleState
+    let hasManagedVM: Bool
+    let testRootOverrideEnabled: Bool
+    let currentRunID: UUID?
+}
+
+struct ReadinessScanEvidence: Codable, Equatable, Identifiable {
+    let id: UUID
+    let timestampISO8601: String
+    let snapshot: ReadinessPreflightSnapshot
+    let findings: [String]
+    let criteria: [ReadinessCriterion]
+    let isGoForEnvironmentTesting: Bool
+    let readinessSummary: String
+}
+
+struct ReadinessChecklistSignals: Equatable {
+    let snapshot: ReadinessPreflightSnapshot
+    let preflightEvidenceExists: Bool
+    let securityFlowReady: Bool
+    let buildPassed: Bool?
+    let testsPassed: Bool?
+}
+
+struct GoNoGoDecisionReport: Codable, Equatable, Identifiable {
+    let id: UUID
+    let timestampISO8601: String
+    let decision: String
+    let readinessSummary: String
+    let unsatisfiedCriteriaIDs: [String]
+    let unsatisfiedCriteriaTitles: [String]
+}
+
+struct RuntimeSessionSnapshot: Codable, Equatable, Identifiable {
+    let id: UUID
+    let vmID: UUID
+    let stateRaw: String
+    let processID: Int32
+    let lastUpdatedISO8601: String
+    
+    init(id: UUID = UUID(), vmID: UUID, stateRaw: String, processID: Int32, lastUpdatedISO8601: String) {
+        self.id = id
+        self.vmID = vmID
+        self.stateRaw = stateRaw
+        self.processID = processID
+        self.lastUpdatedISO8601 = lastUpdatedISO8601
+    }
 }

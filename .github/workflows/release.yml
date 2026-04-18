@@ -1,0 +1,74 @@
+name: Release Pipeline
+
+on:
+  release:
+    types: [ published ]
+
+jobs:
+  create-release-assets:
+    runs-on: macos-latest
+    outputs:
+      release-url: ${{ steps.create-release.outputs.url }}
+      
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+        
+    - name: Build Release
+      run: |
+        xcodebuild -scheme "ML Integration" \
+          -destination "platform=macOS" \
+          -configuration Release \
+          clean build \
+          -derivedDataPath ./build
+          
+    - name: Create Release Archive
+      run: |
+        xcodebuild -scheme "ML Integration" \
+          -destination "platform=macOS" \
+          -configuration Release \
+          -archivePath ./archives \
+          archive
+          
+    - name: Export App
+      run: |
+        xcodebuild -exportArchive \
+          -archivePath ./archives/ML\ Integration.xcarchive \
+          -exportPath ./export \
+          -exportOptionsPlist ExportOptions.plist
+          
+    - name: Create GitHub Release
+      id: create-release
+      uses: actions/create-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: ML Integration ${{ github.ref_name }}
+        body: |
+          ## ML Integration ${{ github.ref_name }}
+          
+          ### 🚀 Features
+          - Complete VM lifecycle management
+          - Integration services with shared resources
+          - Health monitoring and auto-heal
+          - Security and credential management
+          - Comprehensive observability
+          
+          ### 📦 Installation
+          1. Download `ML Integration.app` from the assets below
+          2. Move to `/Applications` folder
+          3. Launch and follow setup instructions
+          
+          ### 🔧 System Requirements
+          - macOS 12.0 or later
+          - Apple Silicon or Intel Mac
+          - 8GB RAM minimum (16GB recommended)
+          - Virtualization support
+          
+        draft: false
+        files: |
+          export/ML Integration.app

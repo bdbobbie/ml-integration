@@ -278,11 +278,7 @@ final class DefaultIntegrationService: IntegrationService {
     }
 
     private func packageDirectory(for vmID: UUID) throws -> IntegrationPackageDirectories {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-
-        let integrationDirectory = base
-            .appendingPathComponent("MLIntegration", isDirectory: true)
+        let integrationDirectory = RuntimeEnvironment.mlIntegrationRootURL()
             .appendingPathComponent("integration", isDirectory: true)
             .appendingPathComponent(vmID.uuidString, isDirectory: true)
 

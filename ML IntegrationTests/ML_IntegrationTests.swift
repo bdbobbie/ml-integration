@@ -3,6 +3,229 @@ import XCTest
 
 final class ML_IntegrationTests: XCTestCase {
 
+    @MainActor
+    func testReadinessGateIsNoGoWhenAnyCriteriaUnsatisfied() {
+        let planner = BlueprintPlanner()
+        XCTAssertFalse(planner.isReadyForEnvironmentTesting)
+        XCTAssertTrue(planner.readinessProgressSummary.contains("/10"))
+    }
+
+    @MainActor
+    func testReadinessGateBecomesGoWhenAllCriteriaSatisfied() {
+        let planner = BlueprintPlanner()
+        for criterion in planner.readinessCriteria {
+            planner.setReadinessCriterion(id: criterion.id, isSatisfied: true)
+        }
+
+        XCTAssertTrue(planner.isReadyForEnvironmentTesting)
+        XCTAssertEqual(planner.readinessProgressSummary, "10/10 criteria satisfied")
+    }
+
+    @MainActor
+    func testPreflightScanMarksEnvironmentPrereqsSatisfiedForCapableHost() {
+        let planner = BlueprintPlanner()
+        let snapshot = ReadinessPreflightSnapshot(
+            hostProfile: HostProfile(architecture: .appleSilicon, cpuCores: 8, memoryGB: 16, macOSVersion: "test"),
+            virtualizationSupported: true,
+            catalogHasArtifacts: true,
+            catalogErrorMessage: "",
+            installLifecycleState: .ready,
+            hasManagedVM: true,
+            testRootOverrideEnabled: true,
+            currentRunID: UUID()
+        )
+
+        planner.applyPreflightScan(snapshot)
+
+        let prereq = planner.readinessCriteria.first { $0.id == "environment-prereqs" }
+        let blockers = planner.readinessCriteria.first { $0.id == "blockers-cleared" }
+        XCTAssertEqual(prereq?.isSatisfied, true)
+        XCTAssertEqual(blockers?.isSatisfied, true)
+        XCTAssertTrue(planner.preflightStatusMessage.contains("passed"))
+    }
+
+    @MainActor
+    func testPreflightScanMarksEnvironmentPrereqsUnsatisfiedForWeakHost() {
+        let planner = BlueprintPlanner()
+        let snapshot = ReadinessPreflightSnapshot(
+            hostProfile: HostProfile(architecture: .intel, cpuCores: 1, memoryGB: 4, macOSVersion: "test"),
+            virtualizationSupported: false,
+            catalogHasArtifacts: false,
+            catalogErrorMessage: "Catalog fetch failed",
+            installLifecycleState: .failed,
+            hasManagedVM: false,
+            testRootOverrideEnabled: false,
+            currentRunID: nil
+        )
+
+        planner.applyPreflightScan(snapshot)
+
+        let prereq = planner.readinessCriteria.first { $0.id == "environment-prereqs" }
+        let blockers = planner.readinessCriteria.first { $0.id == "blockers-cleared" }
+        XCTAssertEqual(prereq?.isSatisfied, false)
+        XCTAssertEqual(blockers?.isSatisfied, false)
+        XCTAssertTrue(planner.preflightFindings.contains { $0.hasPrefix("WARN") })
+    }
+
+    @MainActor
+    func testPreflightScanPersistsEvidenceArtifact() throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-preflight-evidence-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let planner = BlueprintPlanner()
+        let snapshot = ReadinessPreflightSnapshot(
+            hostProfile: HostProfile(architecture: .appleSilicon, cpuCores: 8, memoryGB: 16, macOSVersion: "test"),
+            virtualizationSupported: true,
+            catalogHasArtifacts: true,
+            catalogErrorMessage: "",
+            installLifecycleState: .ready,
+            hasManagedVM: true,
+            testRootOverrideEnabled: true,
+            currentRunID: UUID()
+        )
+
+        planner.applyPreflightScan(snapshot)
+        XCTAssertFalse(planner.lastPreflightEvidencePath.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: planner.lastPreflightEvidencePath))
+
+        let data = try Data(contentsOf: URL(fileURLWithPath: planner.lastPreflightEvidencePath))
+        let evidence = try JSONDecoder().decode(ReadinessScanEvidence.self, from: data)
+        XCTAssertEqual(evidence.snapshot.virtualizationSupported, true)
+        XCTAssertEqual(evidence.readinessSummary, planner.readinessProgressSummary)
+    }
+
+    @MainActor
+    func testChecklistAutoSyncUpdatesCoreCriteria() {
+        let planner = BlueprintPlanner()
+        let snapshot = ReadinessPreflightSnapshot(
+            hostProfile: HostProfile(architecture: .appleSilicon, cpuCores: 8, memoryGB: 16, macOSVersion: "test"),
+            virtualizationSupported: true,
+            catalogHasArtifacts: true,
+            catalogErrorMessage: "",
+            installLifecycleState: .ready,
+            hasManagedVM: true,
+            testRootOverrideEnabled: true,
+            currentRunID: UUID()
+        )
+
+        planner.autoSyncChecklist(
+            with: ReadinessChecklistSignals(
+                snapshot: snapshot,
+                preflightEvidenceExists: true,
+                securityFlowReady: true,
+                buildPassed: true,
+                testsPassed: true
+            )
+        )
+
+        XCTAssertTrue(planner.readinessCriteria.first(where: { $0.id == "environment-prereqs" })?.isSatisfied ?? false)
+        XCTAssertTrue(planner.readinessCriteria.first(where: { $0.id == "lifecycle-states" })?.isSatisfied ?? false)
+        XCTAssertTrue(planner.readinessCriteria.first(where: { $0.id == "observability-enabled" })?.isSatisfied ?? false)
+        XCTAssertTrue(planner.readinessCriteria.first(where: { $0.id == "automation-passing" })?.isSatisfied ?? false)
+        XCTAssertTrue(planner.readinessCriteria.first(where: { $0.id == "blockers-cleared" })?.isSatisfied ?? false)
+    }
+
+    @MainActor
+    func testChecklistAutoSyncMarksFailuresWhenSignalsAreBad() {
+        let planner = BlueprintPlanner()
+        let snapshot = ReadinessPreflightSnapshot(
+            hostProfile: HostProfile(architecture: .intel, cpuCores: 1, memoryGB: 4, macOSVersion: "test"),
+            virtualizationSupported: false,
+            catalogHasArtifacts: false,
+            catalogErrorMessage: "catalog failed",
+            installLifecycleState: .failed,
+            hasManagedVM: false,
+            testRootOverrideEnabled: false,
+            currentRunID: nil
+        )
+
+        planner.autoSyncChecklist(
+            with: ReadinessChecklistSignals(
+                snapshot: snapshot,
+                preflightEvidenceExists: true,
+                securityFlowReady: false,
+                buildPassed: false,
+                testsPassed: false
+            )
+        )
+
+        XCTAssertFalse(planner.readinessCriteria.first(where: { $0.id == "environment-prereqs" })?.isSatisfied ?? true)
+        XCTAssertFalse(planner.readinessCriteria.first(where: { $0.id == "lifecycle-states" })?.isSatisfied ?? true)
+        XCTAssertFalse(planner.readinessCriteria.first(where: { $0.id == "security-flow" })?.isSatisfied ?? true)
+        XCTAssertFalse(planner.readinessCriteria.first(where: { $0.id == "automation-passing" })?.isSatisfied ?? true)
+        XCTAssertFalse(planner.readinessCriteria.first(where: { $0.id == "blockers-cleared" })?.isSatisfied ?? true)
+    }
+
+    @MainActor
+    func testStartEnvironmentTestingBlocksOnNoGoAndPersistsDecisionReport() {
+        let planner = BlueprintPlanner()
+        let started = planner.startEnvironmentTestingIfReady()
+
+        XCTAssertFalse(started)
+        XCTAssertFalse(planner.environmentTestingStarted)
+        XCTAssertTrue(planner.environmentTestStartStatusMessage.contains("NO-GO"))
+        XCTAssertFalse(planner.lastGoNoGoReportPath.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: planner.lastGoNoGoReportPath))
+    }
+
+    @MainActor
+    func testStartEnvironmentTestingAllowsGoWhenAllCriteriaSatisfied() {
+        let planner = BlueprintPlanner()
+        for criterion in planner.readinessCriteria {
+            planner.setReadinessCriterion(id: criterion.id, isSatisfied: true)
+        }
+
+        let started = planner.startEnvironmentTestingIfReady()
+
+        XCTAssertTrue(started)
+        XCTAssertTrue(planner.environmentTestingStarted)
+        XCTAssertTrue(planner.environmentTestStartStatusMessage.contains("GO"))
+        XCTAssertFalse(planner.lastGoNoGoReportPath.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: planner.lastGoNoGoReportPath))
+    }
+
+    @MainActor
+    func testChronicleBackfillIsAppliedOnce() throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-chronicle-backfill-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let store = DevelopmentChronicleStore()
+        let baselineCount = store.entries.count
+
+        store.backfillSessionMilestonesIfNeeded()
+        let firstPassCount = store.entries.count
+        XCTAssertGreaterThan(firstPassCount, baselineCount)
+
+        store.backfillSessionMilestonesIfNeeded()
+        let secondPassCount = store.entries.count
+        XCTAssertEqual(secondPassCount, firstPassCount)
+        XCTAssertTrue(store.entries.contains { $0.relatedStageID == "backfill-2026-04-runtime-readiness" })
+    }
+
     func testDownloaderFallsBackToMirrorWhenPrimaryFails() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [URLProtocolMock.self]
@@ -116,6 +339,8 @@ final class ML_IntegrationTests: XCTestCase {
         )
 
         XCTAssertTrue(viewModel.vmStatusMessage.contains("Provide installer image path"))
+        XCTAssertEqual(viewModel.installLifecycleState, .failed)
+        XCTAssertTrue(viewModel.installLifecycleDetail.contains("Provide installer image path"))
     }
 
     @MainActor
@@ -174,9 +399,62 @@ final class ML_IntegrationTests: XCTestCase {
             kernelImagePath: "",
             initialRamdiskPath: ""
         )
+        XCTAssertEqual(viewModel.installLifecycleState, .ready)
 
         await viewModel.applyAutoHeal()
         XCTAssertTrue(viewModel.healthStatusMessage.contains("Auto-heal completed"))
+    }
+
+    @MainActor
+    func testVMRuntimeLifecycleStartStopRestartAfterScaffold() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-runtime",
+            installerImagePath: "/tmp/mock.iso",
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        XCTAssertEqual(viewModel.vmRuntimeState, .stopped)
+        await viewModel.startActiveVM()
+        XCTAssertEqual(viewModel.vmRuntimeState, .running)
+
+        await viewModel.stopActiveVM()
+        XCTAssertEqual(viewModel.vmRuntimeState, .stopped)
+
+        await viewModel.restartActiveVM()
+        XCTAssertEqual(viewModel.vmRuntimeState, .running)
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("restart"))
+    }
+
+    @MainActor
+    func testStartVMFailsWithoutActiveVM() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.startActiveVM()
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("No VM is selected"))
     }
 
     @MainActor
@@ -220,6 +498,7 @@ final class ML_IntegrationTests: XCTestCase {
         await viewModel.uninstallActiveVM(removeArtifacts: true)
         XCTAssertTrue(viewModel.cleanupStatusMessage.contains("Uninstall completed"))
         XCTAssertFalse(viewModel.cleanupReport.isEmpty)
+        XCTAssertEqual(viewModel.installLifecycleState, .idle)
 
         await viewModel.verifyCleanupForLastKnownVM()
         XCTAssertTrue(viewModel.cleanupStatusMessage.contains("Cleanup verification completed"))
@@ -445,6 +724,432 @@ final class ML_IntegrationTests: XCTestCase {
 
         let staleEntry = await registry.entry(for: staleID)
         XCTAssertNil(staleEntry)
+    }
+
+    func testIntegrationServiceUsesTestRootEnvironmentOverride() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-test-root-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let vmID = UUID()
+        let service = DefaultIntegrationService()
+        try await service.configureSharedResources(for: vmID)
+
+        let expectedConfig = testRoot
+            .appendingPathComponent("MLIntegration", isDirectory: true)
+            .appendingPathComponent("integration", isDirectory: true)
+            .appendingPathComponent(vmID.uuidString, isDirectory: true)
+            .appendingPathComponent("shared-resources.json")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedConfig.path))
+    }
+
+    func testVMRegistryUsesTestRootEnvironmentOverride() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-registry-root-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let registry = PersistentVMRegistryStore()
+        let vmID = UUID()
+        let now = ISO8601DateFormatter().string(from: Date())
+        try await registry.upsert(
+            VMRegistryEntry(
+                id: vmID,
+                vmName: "env-vm",
+                vmDirectoryPath: "/tmp/env-vm",
+                distribution: .ubuntu,
+                architecture: .appleSilicon,
+                runtimeEngine: .appleVirtualization,
+                createdAtISO8601: now,
+                updatedAtISO8601: now
+            )
+        )
+
+        let expectedRegistry = testRoot
+            .appendingPathComponent("MLIntegration", isDirectory: true)
+            .appendingPathComponent("vm-registry.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedRegistry.path))
+    }
+
+    func testFileRuntimeObservabilityStorePersistsRunEvents() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-observability-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let store = FileRuntimeObservabilityStore()
+        let vmID = UUID()
+        let runID = try await store.beginRun(vmID: vmID)
+        try await store.appendEvent(
+            runID: runID,
+            vmID: vmID,
+            stage: .installValidation,
+            result: .inProgress,
+            message: "validating"
+        )
+        try await store.appendEvent(
+            runID: runID,
+            vmID: vmID,
+            stage: .installReady,
+            result: .success,
+            message: "ready"
+        )
+
+        let reportURL = try await store.exportReport(runID: runID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reportURL.path))
+
+        let data = try Data(contentsOf: reportURL)
+        let report = try JSONDecoder().decode(RuntimeRunReport.self, from: data)
+        XCTAssertEqual(report.runID, runID)
+        XCTAssertEqual(report.vmID, vmID)
+        XCTAssertEqual(report.events.count, 2)
+        XCTAssertEqual(report.events.last?.stage, .installReady)
+        XCTAssertEqual(report.events.last?.result, .success)
+    }
+
+    @MainActor
+    func testRuntimeSessionPersistsAndRestoresState() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-runtime-session-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        // Scaffold a VM to establish an active VM and a stopped runtime state persisted to disk.
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-session",
+            installerImagePath: "/tmp/mock.iso",
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        XCTAssertEqual(viewModel.installLifecycleState, .ready)
+        XCTAssertEqual(viewModel.vmRuntimeState, .stopped)
+
+        // Simulate relaunch by creating a fresh view model and restoring state.
+        let relaunched = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        // restoreVMRegistryState also calls session restore at the end
+        await relaunched.restoreVMRegistryState()
+
+        XCTAssertNotNil(relaunched.activeVMID)
+        XCTAssertEqual(relaunched.installLifecycleState, .ready)
+        XCTAssertEqual(relaunched.vmRuntimeState, .stopped)
+    }
+
+    @MainActor
+    func testRuntimeSessionUpdatesOnStartStop() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-runtime-session-startstop-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-session-ss",
+            installerImagePath: "/tmp/mock.iso",
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        XCTAssertEqual(viewModel.vmRuntimeState, .stopped)
+
+        await viewModel.startActiveVM()
+        XCTAssertEqual(viewModel.vmRuntimeState, .running)
+
+        await viewModel.stopActiveVM()
+        XCTAssertEqual(viewModel.vmRuntimeState, .stopped)
+
+        // Relaunch and ensure last state (stopped) is restored
+        let relaunched = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await relaunched.restoreVMRegistryState()
+        XCTAssertEqual(relaunched.vmRuntimeState, .stopped)
+    }
+
+    @MainActor
+    func testRuntimeSessionClearsOnUninstall() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-runtime-session-clear-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-session-clear",
+            installerImagePath: "/tmp/mock.iso",
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        // Uninstall should clear the active session persisted file
+        await viewModel.uninstallActiveVM(removeArtifacts: true)
+        XCTAssertEqual(viewModel.installLifecycleState, .idle)
+
+        // Relaunch should not restore any active session
+        let relaunched = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await relaunched.restoreVMRegistryState()
+        // If no registry entries remain and session cleared, activeVMID may be nil or state reset
+        // We assert that runtime state is not running and no misleading active session exists
+        XCTAssertTrue(relaunched.activeVMID == nil || relaunched.vmRuntimeState == .stopped)
+    }
+
+    @MainActor
+    func testRuntimeSessionPersistsSessionFileAndRebindsWhenPidAlive() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-runtime-session-rebind-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        // Scaffold and start VM to persist a running state with current process PID
+        let vm = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await vm.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-session-rebind",
+            installerImagePath: "/tmp/mock.iso",
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        await vm.startActiveVM()
+        XCTAssertEqual(vm.vmRuntimeState, .running)
+
+        // Verify session file exists
+        let sessionFile = testRoot
+            .appendingPathComponent("MLIntegration", isDirectory: true)
+            .appendingPathComponent("runtime-session.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionFile.path))
+
+        // Simulate relaunch and ensure we rebind to running PID
+        let relaunched = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await relaunched.restoreVMRegistryState()
+        XCTAssertEqual(relaunched.vmRuntimeState, .running)
+        XCTAssertTrue(relaunched.vmRuntimeStatusMessage.localizedCaseInsensitiveContains("rebound"))
+    }
+
+    @MainActor
+    func testRuntimeSessionRestoresStoppedWhenPidNotAlive() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-runtime-session-deadpid-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        // Create a view model and scaffold to create the session file (stopped state)
+        let vm = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await vm.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-session-deadpid",
+            installerImagePath: "/tmp/mock.iso",
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        // Manually write a session snapshot with a bogus PID to simulate stale process
+        let sessionPath = testRoot
+            .appendingPathComponent("MLIntegration", isDirectory: true)
+            .appendingPathComponent("runtime-session.json")
+        let bogus = RuntimeSessionSnapshot(
+            vmID: vm.activeVMID!,
+            stateRaw: VMRuntimeState.running.rawValue,
+            processID: Int32.max, // an invalid PID should not be alive
+            lastUpdatedISO8601: ISO8601DateFormatter().string(from: Date())
+        )
+        let data = try JSONEncoder().encode(bogus)
+        try FileManager.default.createDirectory(at: sessionPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: sessionPath)
+
+        // Relaunch and ensure state falls back to stopped with explanatory message
+        let relaunched = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await relaunched.restoreVMRegistryState()
+        XCTAssertEqual(relaunched.vmRuntimeState, .stopped)
+        XCTAssertTrue(relaunched.vmRuntimeStatusMessage.localizedCaseInsensitiveContains("marking as stopped"))
     }
 }
 

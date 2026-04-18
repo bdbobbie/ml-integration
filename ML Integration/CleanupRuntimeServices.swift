@@ -117,10 +117,10 @@ final class DefaultUninstallCleanupService: UninstallCleanupService {
     }
 
     private func baseDirectory() -> URL {
-        let appSupport = explicitBaseDirectoryURL
-            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        return appSupport.appendingPathComponent("MLIntegration", isDirectory: true)
+        if let explicitBaseDirectoryURL {
+            return explicitBaseDirectoryURL.appendingPathComponent("MLIntegration", isDirectory: true)
+        }
+        return RuntimeEnvironment.mlIntegrationRootURL()
     }
 }
 

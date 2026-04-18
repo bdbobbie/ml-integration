@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose an enhancement to installer or integration capabilities
+labels: ["enhancement"]
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      placeholder: One-line feature summary
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem_statement
+    attributes:
+      label: Problem Statement
+      placeholder: What user/developer problem does this solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution
+      placeholder: Describe expected behavior and constraints
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      placeholder: Measurable conditions for completion

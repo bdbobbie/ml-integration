@@ -24,9 +24,7 @@ actor PersistentVMRegistryStore: VMRegistryManaging {
     private let decoder: JSONDecoder
 
     init(baseDirectoryURL: URL? = nil) {
-        let base = baseDirectoryURL
-            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let base = baseDirectoryURL ?? RuntimeEnvironment.mlIntegrationRootURL().deletingLastPathComponent()
 
         self.registryFileURL = base
             .appendingPathComponent("MLIntegration", isDirectory: true)

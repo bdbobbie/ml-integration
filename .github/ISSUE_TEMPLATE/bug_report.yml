@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a defect in install, integration, health, cleanup, or escalation flows
+labels: ["bug"]
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      placeholder: Short description of the failure
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Reproduction Steps
+      placeholder: List exact steps to reproduce
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Actual Behavior
+    validations:
+      required: true
+
+  - type: input
+    id: build_info
+    attributes:
+      label: Build/Commit
+      placeholder: Commit SHA or build number
