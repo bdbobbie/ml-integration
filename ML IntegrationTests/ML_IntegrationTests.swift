@@ -1382,10 +1382,17 @@ final class MockIntegrationService: IntegrationService {
 }
 
 struct MockDownloader: ArtifactDownloading {
-    func downloadArtifact(primaryURL: URL, mirrorURLs: [URL], destinationURL: URL, maxRetriesPerURL: Int) async throws {
+    func downloadArtifact(
+        primaryURL: URL,
+        mirrorURLs: [URL],
+        destinationURL: URL,
+        maxRetriesPerURL: Int,
+        progressHandler: (@Sendable (ArtifactDownloadProgress) -> Void)?
+    ) async throws {
         _ = primaryURL
         _ = mirrorURLs
         _ = maxRetriesPerURL
+        _ = progressHandler
         try Data("mock".utf8).write(to: destinationURL)
     }
 }

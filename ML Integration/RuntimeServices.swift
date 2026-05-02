@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import Virtualization
+import AppKit
 
 enum RuntimeServiceError: LocalizedError {
     case unsupportedArchitecture(String)
@@ -80,6 +81,58 @@ struct CommandResult {
     let output: String
 }
 
+enum QEMUBinaryLocator {
+    static func binaryName(for architecture: HostArchitecture) -> String {
+        architecture == .appleSilicon ? "qemu-system-aarch64" : "qemu-system-x86_64"
+    }
+
+    static func locateBinaryPath(for architecture: HostArchitecture) -> String? {
+        let name = binaryName(for: architecture)
+        let candidates = [
+            "/opt/homebrew/bin/\(name)",
+            "/usr/local/bin/\(name)",
+            "/opt/local/bin/\(name)",
+            "/usr/bin/\(name)"
+        ]
+
+        for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-lc",
+            "PATH=/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin command -v \(name)"
+        ]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let output, !output.isEmpty else { return nil }
+            return output
+        } catch {
+            return nil
+        }
+    }
+}
+
+struct ArtifactDownloadProgress: Sendable {
+    let sourceURL: URL
+    let receivedBytes: Int64
+    let totalBytes: Int64?
+
+    var fractionCompleted: Double? {
+        guard let totalBytes, totalBytes > 0 else { return nil }
+        return min(max(Double(receivedBytes) / Double(totalBytes), 0.0), 1.0)
+    }
+}
+
 protocol CommandRunning {
     func run(executableURL: URL, arguments: [String]) throws -> CommandResult
 }
@@ -151,7 +204,30 @@ struct GPGSignatureVerifier: SignatureVerifying {
 }
 
 protocol ArtifactDownloading {
-    func downloadArtifact(primaryURL: URL, mirrorURLs: [URL], destinationURL: URL, maxRetriesPerURL: Int) async throws
+    func downloadArtifact(
+        primaryURL: URL,
+        mirrorURLs: [URL],
+        destinationURL: URL,
+        maxRetriesPerURL: Int,
+        progressHandler: (@Sendable (ArtifactDownloadProgress) -> Void)?
+    ) async throws
+}
+
+extension ArtifactDownloading {
+    func downloadArtifact(
+        primaryURL: URL,
+        mirrorURLs: [URL],
+        destinationURL: URL,
+        maxRetriesPerURL: Int
+    ) async throws {
+        try await downloadArtifact(
+            primaryURL: primaryURL,
+            mirrorURLs: mirrorURLs,
+            destinationURL: destinationURL,
+            maxRetriesPerURL: maxRetriesPerURL,
+            progressHandler: nil
+        )
+    }
 }
 
 actor ResumableArtifactDownloader: ArtifactDownloading {
@@ -161,7 +237,13 @@ actor ResumableArtifactDownloader: ArtifactDownloading {
         self.session = session
     }
 
-    func downloadArtifact(primaryURL: URL, mirrorURLs: [URL], destinationURL: URL, maxRetriesPerURL: Int = 3) async throws {
+    func downloadArtifact(
+        primaryURL: URL,
+        mirrorURLs: [URL],
+        destinationURL: URL,
+        maxRetriesPerURL: Int = 3,
+        progressHandler: (@Sendable (ArtifactDownloadProgress) -> Void)? = nil
+    ) async throws {
         let candidates = [primaryURL] + mirrorURLs
         guard !candidates.isEmpty else {
             throw RuntimeServiceError.downloadFailed("No download URLs were provided.")
@@ -171,7 +253,11 @@ actor ResumableArtifactDownloader: ArtifactDownloading {
         for candidate in candidates {
             for attempt in 1...max(maxRetriesPerURL, 1) {
                 do {
-                    try await downloadFromSingleURL(candidate, destinationURL: destinationURL)
+                    try await downloadFromSingleURL(
+                        candidate,
+                        destinationURL: destinationURL,
+                        progressHandler: progressHandler
+                    )
                     return
                 } catch {
                     lastError = error
@@ -185,7 +271,12 @@ actor ResumableArtifactDownloader: ArtifactDownloading {
         throw lastError ?? RuntimeServiceError.downloadFailed("All mirrors failed.")
     }
 
-    private func downloadFromSingleURL(_ url: URL, destinationURL: URL) async throws {
+    private func downloadFromSingleURL(
+        _ url: URL,
+        destinationURL: URL,
+        allowRangeRetry: Bool = true,
+        progressHandler: (@Sendable (ArtifactDownloadProgress) -> Void)? = nil
+    ) async throws {
         let fileManager = FileManager.default
         if !fileManager.fileExists(atPath: destinationURL.deletingLastPathComponent().path) {
             try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -201,21 +292,75 @@ actor ResumableArtifactDownloader: ArtifactDownloading {
         guard let http = response as? HTTPURLResponse else {
             throw RuntimeServiceError.downloadFailed("Invalid HTTP response from \(url.absoluteString)")
         }
+        let totalBytes = resolveTotalBytes(http: http, existingBytes: existingBytes)
+        var receivedBytes: Int64 = (http.statusCode == 206) ? Int64(existingBytes) : 0
+        progressHandler?(
+            ArtifactDownloadProgress(
+                sourceURL: url,
+                receivedBytes: receivedBytes,
+                totalBytes: totalBytes
+            )
+        )
 
         switch http.statusCode {
         case 200:
             if existingBytes > 0 {
                 try? fileManager.removeItem(at: destinationURL)
             }
-            try await writeBytes(bytes, to: destinationURL, append: false)
+            try await writeBytes(
+                bytes,
+                to: destinationURL,
+                append: false
+            ) { delta in
+                receivedBytes += delta
+                progressHandler?(
+                    ArtifactDownloadProgress(
+                        sourceURL: url,
+                        receivedBytes: receivedBytes,
+                        totalBytes: totalBytes
+                    )
+                )
+            }
         case 206:
-            try await writeBytes(bytes, to: destinationURL, append: true)
+            try await writeBytes(
+                bytes,
+                to: destinationURL,
+                append: true
+            ) { delta in
+                receivedBytes += delta
+                progressHandler?(
+                    ArtifactDownloadProgress(
+                        sourceURL: url,
+                        receivedBytes: receivedBytes,
+                        totalBytes: totalBytes
+                    )
+                )
+            }
+        case 416:
+            // Some mirrors reject stale range offsets. Clear partial data and retry once
+            // without a Range header before failing this URL.
+            if existingBytes > 0, allowRangeRetry {
+                try? fileManager.removeItem(at: destinationURL)
+                try await downloadFromSingleURL(
+                    url,
+                    destinationURL: destinationURL,
+                    allowRangeRetry: false,
+                    progressHandler: progressHandler
+                )
+                return
+            }
+            throw RuntimeServiceError.downloadFailed("HTTP 416 from \(url.absoluteString)")
         default:
             throw RuntimeServiceError.downloadFailed("HTTP \(http.statusCode) from \(url.absoluteString)")
         }
     }
 
-    private func writeBytes(_ bytes: URLSession.AsyncBytes, to url: URL, append: Bool) async throws {
+    private func writeBytes(
+        _ bytes: URLSession.AsyncBytes,
+        to url: URL,
+        append: Bool,
+        progressUpdate: (@Sendable (Int64) -> Void)? = nil
+    ) async throws {
         let fileManager = FileManager.default
         if !fileManager.fileExists(atPath: url.path) {
             fileManager.createFile(atPath: url.path, contents: nil)
@@ -236,13 +381,34 @@ actor ResumableArtifactDownloader: ArtifactDownloading {
             buffer.append(byte)
             if buffer.count >= 128 * 1024 { // Increased buffer size for fewer writes
                 try handle.write(contentsOf: buffer)
+                progressUpdate?(Int64(buffer.count))
                 buffer.removeAll(keepingCapacity: true)
             }
         }
 
         if !buffer.isEmpty {
             try handle.write(contentsOf: buffer)
+            progressUpdate?(Int64(buffer.count))
         }
+    }
+
+    private func resolveTotalBytes(http: HTTPURLResponse, existingBytes: UInt64) -> Int64? {
+        if let contentRange = http.value(forHTTPHeaderField: "Content-Range"),
+           let totalPart = contentRange.split(separator: "/").last,
+           let total = Int64(totalPart),
+           total > 0 {
+            return total
+        }
+
+        let expected = http.expectedContentLength
+        if expected > 0 {
+            if http.statusCode == 206 {
+                return Int64(existingBytes) + expected
+            }
+            return expected
+        }
+
+        return nil
     }
 
     private func existingFileSize(at url: URL) -> UInt64 {
@@ -301,22 +467,23 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
         var artifacts: [DistributionArtifact] = []
 
         for descriptor in descriptors {
-            let fileToken = descriptor.checksumFileName ?? descriptor.downloadURL.lastPathComponent
+            let resolvedDescriptor = await resolveDynamicDescriptorIfNeeded(descriptor)
+            let fileToken = resolvedDescriptor.checksumFileName ?? resolvedDescriptor.downloadURL.lastPathComponent
             let artifactID = "\(descriptor.distribution.rawValue)-\(architecture.rawValue)-\(fileToken)"
             do {
-                let result = try await fetchChecksumAndSignature(descriptor: descriptor)
+                let result = try await fetchChecksumAndSignature(descriptor: resolvedDescriptor)
                 signatureStatusByArtifactID[artifactID] = result.signatureVerified
 
                 artifacts.append(
                     DistributionArtifact(
                         id: artifactID,
-                        distribution: descriptor.distribution,
+                        distribution: resolvedDescriptor.distribution,
                         architecture: architecture,
-                        version: descriptor.version,
-                        downloadURL: descriptor.downloadURL,
-                        mirrorURLs: descriptor.mirrorURLs,
+                        version: resolvedDescriptor.version,
+                        downloadURL: resolvedDescriptor.downloadURL,
+                        mirrorURLs: resolvedDescriptor.mirrorURLs,
                         checksumSHA256: result.checksum,
-                        signatureExpected: descriptor.checksumSignatureURL != nil,
+                        signatureExpected: resolvedDescriptor.checksumSignatureURL != nil,
                         signatureVerifiedAtSource: result.signatureVerified
                     )
                 )
@@ -327,13 +494,13 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
                 artifacts.append(
                     DistributionArtifact(
                         id: artifactID,
-                        distribution: descriptor.distribution,
+                        distribution: resolvedDescriptor.distribution,
                         architecture: architecture,
-                        version: descriptor.version,
-                        downloadURL: descriptor.downloadURL,
-                        mirrorURLs: descriptor.mirrorURLs,
+                        version: resolvedDescriptor.version,
+                        downloadURL: resolvedDescriptor.downloadURL,
+                        mirrorURLs: resolvedDescriptor.mirrorURLs,
                         checksumSHA256: "",
-                        signatureExpected: descriptor.checksumSignatureURL != nil,
+                        signatureExpected: resolvedDescriptor.checksumSignatureURL != nil,
                         signatureVerifiedAtSource: false
                     )
                 )
@@ -341,6 +508,87 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
         }
 
         return artifacts.sorted { $0.distribution.rawValue < $1.distribution.rawValue }
+    }
+
+    private func resolveDynamicDescriptorIfNeeded(_ descriptor: DistributionReleaseDescriptor) async -> DistributionReleaseDescriptor {
+        guard descriptor.distribution == .debian else {
+            return descriptor
+        }
+
+        guard let discoveredISOName = await discoverDebianCurrentISOName(for: descriptor) else {
+            return descriptor
+        }
+
+        let directoryURL = descriptor.downloadURL.deletingLastPathComponent()
+        let resolvedURL = directoryURL.appendingPathComponent(discoveredISOName)
+        return DistributionReleaseDescriptor(
+            distribution: descriptor.distribution,
+            architecture: descriptor.architecture,
+            version: descriptor.version,
+            downloadURL: resolvedURL,
+            mirrorURLs: descriptor.mirrorURLs,
+            checksumFeedURL: descriptor.checksumFeedURL,
+            checksumFileName: discoveredISOName,
+            checksumStrategy: descriptor.checksumStrategy,
+            checksumSignatureURL: descriptor.checksumSignatureURL,
+            keyringFileName: descriptor.keyringFileName,
+            keyFingerprint: descriptor.keyFingerprint
+        )
+    }
+
+    private func discoverDebianCurrentISOName(for descriptor: DistributionReleaseDescriptor) async -> String? {
+        let directoryURL = descriptor.downloadURL.deletingLastPathComponent()
+        guard let (data, _) = try? await URLSession.shared.data(from: directoryURL) else {
+            return nil
+        }
+        guard let html = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        let archToken = descriptor.architecture == .appleSilicon ? "arm64" : "amd64"
+        let profileToken = descriptor.downloadURL.lastPathComponent.localizedCaseInsensitiveContains("DVD-1")
+            ? "DVD-1"
+            : "netinst"
+        let pattern = "debian-([0-9]+(?:\\.[0-9]+)*)-\(archToken)-\(profileToken)\\.iso"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let nsRange = NSRange(html.startIndex..<html.endIndex, in: html)
+        let matches = regex.matches(in: html, options: [], range: nsRange)
+        guard !matches.isEmpty else {
+            return nil
+        }
+
+        var bestFileName: String?
+        var bestVersionComponents: [Int] = []
+        for match in matches {
+            guard
+                match.numberOfRanges >= 2,
+                let versionRange = Range(match.range(at: 1), in: html),
+                let fullRange = Range(match.range(at: 0), in: html)
+            else { continue }
+            let version = String(html[versionRange])
+            let fileName = String(html[fullRange])
+            let components = version.split(separator: ".").compactMap { Int($0) }
+            if compareVersionComponents(components, bestVersionComponents) == .orderedDescending {
+                bestVersionComponents = components
+                bestFileName = fileName
+            }
+        }
+
+        return bestFileName
+    }
+
+    private func compareVersionComponents(_ lhs: [Int], _ rhs: [Int]) -> ComparisonResult {
+        let maxCount = max(lhs.count, rhs.count)
+        for index in 0..<maxCount {
+            let left = index < lhs.count ? lhs[index] : 0
+            let right = index < rhs.count ? rhs[index] : 0
+            if left < right { return .orderedAscending }
+            if left > right { return .orderedDescending }
+        }
+        return .orderedSame
     }
 
     func verifyChecksum(for artifact: DistributionArtifact, at localURL: URL) async throws -> Bool {
@@ -616,6 +864,58 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
             keyFingerprint: nil
         ),
         DistributionReleaseDescriptor(
+            distribution: .nixOS,
+            architecture: .intel,
+            version: "24.11 (minimal)",
+            downloadURL: URL(string: "https://channels.nixos.org/nixos-24.11/latest-nixos-minimal-x86_64-linux.iso")!,
+            mirrorURLs: [],
+            checksumFeedURL: URL(string: "https://channels.nixos.org/nixos-24.11/latest-nixos-minimal-x86_64-linux.iso.sha256"),
+            checksumFileName: "latest-nixos-minimal-x86_64-linux.iso",
+            checksumStrategy: .directSha256File,
+            checksumSignatureURL: nil,
+            keyringFileName: nil,
+            keyFingerprint: nil
+        ),
+        DistributionReleaseDescriptor(
+            distribution: .nixOS,
+            architecture: .appleSilicon,
+            version: "24.11 (minimal)",
+            downloadURL: URL(string: "https://channels.nixos.org/nixos-24.11/latest-nixos-minimal-aarch64-linux.iso")!,
+            mirrorURLs: [],
+            checksumFeedURL: URL(string: "https://channels.nixos.org/nixos-24.11/latest-nixos-minimal-aarch64-linux.iso.sha256"),
+            checksumFileName: "latest-nixos-minimal-aarch64-linux.iso",
+            checksumStrategy: .directSha256File,
+            checksumSignatureURL: nil,
+            keyringFileName: nil,
+            keyFingerprint: nil
+        ),
+        DistributionReleaseDescriptor(
+            distribution: .windows11,
+            architecture: .intel,
+            version: "Latest (Microsoft official media)",
+            downloadURL: URL(string: "https://www.microsoft.com/software-download/windows11ISO")!,
+            mirrorURLs: [],
+            checksumFeedURL: nil,
+            checksumFileName: nil,
+            checksumStrategy: nil,
+            checksumSignatureURL: nil,
+            keyringFileName: nil,
+            keyFingerprint: nil
+        ),
+        DistributionReleaseDescriptor(
+            distribution: .windows11,
+            architecture: .appleSilicon,
+            version: "Latest ARM64 (Microsoft official media)",
+            downloadURL: URL(string: "https://www.microsoft.com/en-us/software-download/windows11ARM64")!,
+            mirrorURLs: [],
+            checksumFeedURL: nil,
+            checksumFileName: nil,
+            checksumStrategy: nil,
+            checksumSignatureURL: nil,
+            keyringFileName: nil,
+            keyFingerprint: nil
+        ),
+        DistributionReleaseDescriptor(
             distribution: .openSUSE,
             architecture: .intel,
             version: "Tumbleweed Current",
@@ -641,7 +941,58 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
             keyringFileName: nil,
             keyFingerprint: nil
         ),
-        // Pop!_OS is intentionally omitted until a stable direct ISO URL feed is available.
+        DistributionReleaseDescriptor(
+            distribution: .popOS,
+            architecture: .intel,
+            version: "24.04 LTS",
+            downloadURL: URL(string: "https://iso.pop-os.org/24.04/amd64/generic/22/pop-os_24.04_amd64_generic_22.iso")!,
+            mirrorURLs: [],
+            checksumFeedURL: nil,
+            checksumFileName: nil,
+            checksumStrategy: nil,
+            checksumSignatureURL: nil,
+            keyringFileName: nil,
+            keyFingerprint: nil
+        ),
+        DistributionReleaseDescriptor(
+            distribution: .popOS,
+            architecture: .intel,
+            version: "24.04 LTS (NVIDIA)",
+            downloadURL: URL(string: "https://iso.pop-os.org/24.04/amd64/nvidia/22/pop-os_24.04_amd64_nvidia_22.iso")!,
+            mirrorURLs: [],
+            checksumFeedURL: nil,
+            checksumFileName: nil,
+            checksumStrategy: nil,
+            checksumSignatureURL: nil,
+            keyringFileName: nil,
+            keyFingerprint: nil
+        ),
+        DistributionReleaseDescriptor(
+            distribution: .popOS,
+            architecture: .appleSilicon,
+            version: "24.04 LTS (ARM)",
+            downloadURL: URL(string: "https://iso.pop-os.org/24.04/arm64/generic/3/pop-os_24.04_arm64_generic_3.iso")!,
+            mirrorURLs: [],
+            checksumFeedURL: nil,
+            checksumFileName: nil,
+            checksumStrategy: nil,
+            checksumSignatureURL: nil,
+            keyringFileName: nil,
+            keyFingerprint: nil
+        ),
+        DistributionReleaseDescriptor(
+            distribution: .popOS,
+            architecture: .appleSilicon,
+            version: "24.04 LTS (ARM NVIDIA)",
+            downloadURL: URL(string: "https://iso.pop-os.org/24.04/arm64/nvidia/3/pop-os_24.04_arm64_nvidia_3.iso")!,
+            mirrorURLs: [],
+            checksumFeedURL: nil,
+            checksumFileName: nil,
+            checksumStrategy: nil,
+            checksumSignatureURL: nil,
+            keyringFileName: nil,
+            keyFingerprint: nil
+        )
     ]
 }
 
@@ -666,13 +1017,23 @@ struct ProcessQEMUFallbackHook: QEMUFallbackHook {
 
         try FileManager.default.createDirectory(at: assets.vmDirectoryURL, withIntermediateDirectories: true)
 
-        let qemuBin = "qemu-system-\(request.architecture == .appleSilicon ? "aarch64" : "x86_64")"
-        let whichResult = try runner.run(
-            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-            arguments: ["which", qemuBin]
-        )
-        guard whichResult.status == 0 else {
-            throw RuntimeServiceError.commandFailed("Could not locate \(qemuBin). Install QEMU first. Output: \(whichResult.output)")
+        let qemuBin = QEMUBinaryLocator.binaryName(for: request.architecture)
+        let qemuBinaryPath: String
+        if let located = QEMUBinaryLocator.locateBinaryPath(for: request.architecture) {
+            qemuBinaryPath = located
+        } else {
+            let lookupResult = try runner.run(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: [
+                    "-lc",
+                    "PATH=/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin command -v \(qemuBin)"
+                ]
+            )
+            let resolved = lookupResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard lookupResult.status == 0, !resolved.isEmpty else {
+                throw RuntimeServiceError.commandFailed("Could not locate \(qemuBin). Install QEMU first. Output: \(lookupResult.output)")
+            }
+            qemuBinaryPath = resolved
         }
 
         let automationISO = assets.vmDirectoryURL.appendingPathComponent("automation-seed.iso")
@@ -682,7 +1043,7 @@ struct ProcessQEMUFallbackHook: QEMUFallbackHook {
         var scriptLines: [String] = [
             "#!/bin/sh",
             "set -eu",
-            "\(qemuBin) \\",
+            "\(qemuBinaryPath) \\",
             "  -m \(request.memoryGB * 1024) \\",
             "  -smp \(request.cpuCores) \\",
             "  -drive file=\"\(assets.diskImageURL.path)\",if=virtio \\",
@@ -708,8 +1069,245 @@ private struct VMProvisionRecord {
     var isRunning: Bool
 }
 
+@MainActor
+final class VMConsoleWindowManager {
+    static let shared = VMConsoleWindowManager()
+
+    private struct Session {
+        let virtualMachine: VZVirtualMachine
+        let virtualMachineQueue: DispatchQueue
+        let consoleView: VZVirtualMachineView
+        var window: NSWindow?
+        var embeddedContainer: NSScrollView?
+        let vmDirectoryPath: String
+    }
+
+    private var sessions: [UUID: Session] = [:]
+
+    func startConsole(
+        vmID: UUID,
+        vmDirectoryPath: String,
+        configuration: VZVirtualMachineConfiguration
+    ) async throws {
+        traceVM("VMConsoleWindowManager.startConsole begin vmID=\(vmID.uuidString) vmDirectoryPath=\(vmDirectoryPath)")
+
+        if let existing = sessions[vmID] {
+            let state = existing.virtualMachine.state
+            traceVM("VMConsoleWindowManager.startConsole existing session vmID=\(vmID.uuidString) state=\(state.rawValue)")
+            if state == .running || state == .paused || state == .starting || state == .resuming {
+                _ = focusConsole(vmID: vmID)
+                return
+            }
+            existing.window?.close()
+            sessions[vmID] = nil
+        }
+
+        let vmQueue = DispatchQueue(label: "com.tbdo.ml-integration.vm.\(vmID.uuidString)")
+        let virtualMachine = VZVirtualMachine(configuration: configuration, queue: vmQueue)
+        let consoleView = VZVirtualMachineView(frame: NSRect(x: 0, y: 0, width: 1440, height: 900))
+        consoleView.virtualMachine = virtualMachine
+
+        sessions[vmID] = Session(
+            virtualMachine: virtualMachine,
+            virtualMachineQueue: vmQueue,
+            consoleView: consoleView,
+            window: nil,
+            embeddedContainer: nil,
+            vmDirectoryPath: vmDirectoryPath
+        )
+        traceVM("VMConsoleWindowManager.startConsole session created vmID=\(vmID.uuidString)")
+        try await startVirtualMachineAsync(
+            vmID: vmID,
+            virtualMachine: virtualMachine,
+            virtualMachineQueue: vmQueue
+        )
+        traceVM("VMConsoleWindowManager.startConsole state vmID=\(vmID.uuidString) state=\(virtualMachine.state.rawValue)")
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        let stateAfterDelay = virtualMachine.state
+        traceVM("VMConsoleWindowManager.startConsole state+2s vmID=\(vmID.uuidString) state=\(stateAfterDelay.rawValue)")
+        if stateAfterDelay == .stopped || stateAfterDelay == .error {
+            sessions[vmID] = nil
+            throw RuntimeServiceError.invalidVMRequest(
+                "VM exited immediately after start. No bootable OS was detected. Reinstall OS or boot from installer media."
+            )
+        }
+    }
+
+    func stopConsole(vmID: UUID) async throws {
+        traceVM("VMConsoleWindowManager.stopConsole begin vmID=\(vmID.uuidString)")
+        guard let session = sessions.removeValue(forKey: vmID) else {
+            traceVM("VMConsoleWindowManager.stopConsole no session vmID=\(vmID.uuidString)")
+            return
+        }
+        let window = session.window
+
+        // Hide/detach UI immediately so stop actions don't block on window teardown.
+        if let window {
+            window.orderOut(nil)
+            window.contentView = nil
+            traceVM("VMConsoleWindowManager.stopConsole window hidden vmID=\(vmID.uuidString)")
+            DispatchQueue.main.async {
+                window.close()
+            }
+        }
+        session.embeddedContainer?.removeFromSuperview()
+
+        let virtualMachine = session.virtualMachine
+        let vmQueue = session.virtualMachineQueue
+        vmQueue.async {
+            if virtualMachine.state == .stopped {
+                traceVM("VMConsoleWindowManager.stopConsole vm already stopped vmID=\(vmID.uuidString)")
+                return
+            }
+
+            if virtualMachine.canRequestStop {
+                do {
+                    try virtualMachine.requestStop()
+                    traceVM("VMConsoleWindowManager.stopConsole requested guest stop vmID=\(vmID.uuidString)")
+                } catch {
+                    traceVM("VMConsoleWindowManager.stopConsole requestStop failed vmID=\(vmID.uuidString) error=\(error.localizedDescription)")
+                }
+            } else {
+                traceVM("VMConsoleWindowManager.stopConsole requestStop unavailable vmID=\(vmID.uuidString) state=\(virtualMachine.state.rawValue)")
+            }
+        }
+
+        traceVM("VMConsoleWindowManager.stopConsole return without awaiting vm stop vmID=\(vmID.uuidString)")
+    }
+
+    func focusConsole(vmID: UUID) -> Bool {
+        guard var session = sessions[vmID] else { return false }
+        if session.window == nil {
+            session.window = makeConsoleWindow(vmID: vmID, session: session)
+            sessions[vmID] = session
+        } else if let existingWindow = session.window {
+            attachConsoleView(session.consoleView, to: existingWindow)
+        }
+        guard let window = session.window else { return false }
+        window.deminiaturize(nil)
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        traceVM("VMConsoleWindowManager.focusConsole done vmID=\(vmID.uuidString) isVisible=\(window.isVisible)")
+        return true
+    }
+
+    func closeConsoleWindowIfPresent(vmID: UUID) {
+        guard var session = sessions[vmID] else { return }
+        session.window?.orderOut(nil)
+        session.window?.close()
+        session.window = nil
+        sessions[vmID] = session
+        traceVM("VMConsoleWindowManager.closeConsoleWindowIfPresent completed vmID=\(vmID.uuidString)")
+    }
+
+    func embeddedConsoleContainer(vmID: UUID) -> NSView? {
+        guard var session = sessions[vmID] else { return nil }
+        if session.embeddedContainer == nil {
+            let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 720, height: 480))
+            scrollView.hasVerticalScroller = true
+            scrollView.hasHorizontalScroller = true
+            scrollView.autohidesScrollers = false
+            scrollView.borderType = .bezelBorder
+            scrollView.drawsBackground = true
+
+            let documentView = NSView(frame: NSRect(x: 0, y: 0, width: 1440, height: 900))
+            documentView.autoresizingMask = []
+            session.consoleView.frame = documentView.bounds
+            documentView.addSubview(session.consoleView)
+            scrollView.documentView = documentView
+            session.embeddedContainer = scrollView
+            sessions[vmID] = session
+        } else if let container = session.embeddedContainer,
+                  let documentView = container.documentView {
+            session.consoleView.removeFromSuperviewWithoutNeedingDisplay()
+            session.consoleView.frame = documentView.bounds
+            documentView.addSubview(session.consoleView)
+            sessions[vmID] = session
+        }
+
+        return session.embeddedContainer
+    }
+
+    private func makeConsoleWindow(vmID: UUID, session: Session) -> NSWindow {
+        traceVM("VMConsoleWindowManager.makeConsoleWindow begin vmID=\(vmID.uuidString)")
+        let window = NSWindow(
+            contentRect: NSRect(x: 120, y: 120, width: 1280, height: 800),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "VM Console - \(vmID.uuidString.prefix(8))"
+        attachConsoleView(session.consoleView, to: window)
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window.center()
+        traceVM("VMConsoleWindowManager.makeConsoleWindow prepared vmID=\(vmID.uuidString)")
+        return window
+    }
+
+    private func attachConsoleView(_ consoleView: VZVirtualMachineView, to window: NSWindow) {
+        let hostView = NSView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800))
+        hostView.autoresizingMask = [.width, .height]
+        window.contentView = hostView
+        consoleView.removeFromSuperviewWithoutNeedingDisplay()
+        consoleView.frame = hostView.bounds
+        consoleView.autoresizingMask = [.width, .height]
+        hostView.addSubview(consoleView)
+    }
+
+    private func startVirtualMachineAsync(
+        vmID: UUID,
+        virtualMachine: VZVirtualMachine,
+        virtualMachineQueue: DispatchQueue
+    ) async throws {
+        traceVM("VMConsoleWindowManager.startVirtualMachineAsync scheduled vmID=\(vmID.uuidString)")
+        try await withCheckedThrowingContinuation { continuation in
+            virtualMachineQueue.async {
+                traceVM("VMConsoleWindowManager.startVirtualMachineAsync queue-enter vmID=\(vmID.uuidString)")
+                virtualMachine.start { result in
+                    Task { @MainActor in
+                        switch result {
+                        case .success:
+                            traceVM("VMConsoleWindowManager.startVirtualMachineAsync success vmID=\(vmID.uuidString)")
+                            continuation.resume()
+                        case .failure(let error):
+                            traceVM("VMConsoleWindowManager.startVirtualMachineAsync failure vmID=\(vmID.uuidString) error=\(error.localizedDescription)")
+                            if let session = self.sessions[vmID] {
+                                session.window?.close()
+                            }
+                            self.sessions[vmID] = nil
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func withTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw RuntimeServiceError.commandFailed("VM operation timed out after \(Int(seconds)) seconds.")
+            }
+
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+}
+
 actor VMProvisioningPipelineService: VMProvisioningService {
     private var records: [UUID: VMProvisionRecord] = [:]
+    private var qemuProcesses: [UUID: Process] = [:]
     private let qemuHook: QEMUFallbackHook
     private let registry: VMRegistryManaging
 
@@ -725,9 +1323,10 @@ actor VMProvisioningPipelineService: VMProvisioningService {
         guard request.cpuCores > 0 else { throw RuntimeServiceError.invalidVMRequest("CPU cores must be greater than 0.") }
         guard request.memoryGB >= 2 else { throw RuntimeServiceError.invalidVMRequest("Memory must be at least 2 GB.") }
         guard request.diskGB >= 20 else { throw RuntimeServiceError.invalidVMRequest("Disk must be at least 20 GB.") }
+        try validateInstallerMediaPolicy(request: request, assets: assets)
 
         switch request.runtimeEngine {
-        case .appleVirtualization:
+        case .appleVirtualization, .windowsDedicated:
             guard VZVirtualMachine.isSupported else { throw RuntimeServiceError.virtualizationNotSupported }
             guard let assets else {
                 throw RuntimeServiceError.missingAssets("Virtualization flow requires installer image path and VM asset paths.")
@@ -746,16 +1345,42 @@ actor VMProvisioningPipelineService: VMProvisioningService {
     }
 
     func installVM(using request: VMInstallRequest, assets: VMInstallAssets?) async throws -> UUID {
-        try await validate(request, assets: assets)
+        guard request.cpuCores > 0 else { throw RuntimeServiceError.invalidVMRequest("CPU cores must be greater than 0.") }
+        guard request.memoryGB >= 2 else { throw RuntimeServiceError.invalidVMRequest("Memory must be at least 2 GB.") }
+        guard request.diskGB >= 20 else { throw RuntimeServiceError.invalidVMRequest("Disk must be at least 20 GB.") }
+        try validateInstallerMediaPolicy(request: request, assets: assets)
 
         let vmID: UUID
         switch request.runtimeEngine {
-        case .appleVirtualization:
-            vmID = UUID()
-            if let assets {
-                try createVMFilesIfNeeded(request: request, assets: assets)
+        case .appleVirtualization, .windowsDedicated:
+            guard VZVirtualMachine.isSupported else { throw RuntimeServiceError.virtualizationNotSupported }
+            guard let assets else {
+                throw RuntimeServiceError.missingAssets("Virtualization flow requires installer image path and VM asset paths.")
             }
+
+            let stagedAssets = try stageInstallerImageIfNeeded(assets: assets)
+            // Prepare file-backed VM assets before building/validating Virtualization config.
+            // Disk image attachment validation fails if disk.img does not exist yet.
+            try createVMFilesIfNeeded(request: request, assets: stagedAssets)
+            _ = try buildVirtualizationConfiguration(request: request, assets: stagedAssets)
+
+            vmID = UUID()
+            records[vmID] = VMProvisionRecord(id: vmID, request: request, assets: stagedAssets, isRunning: false)
+            let now = ISO8601DateFormatter().string(from: Date())
+            let entry = VMRegistryEntry(
+                id: vmID,
+                vmName: stagedAssets.vmName,
+                vmDirectoryPath: stagedAssets.vmDirectoryURL.path,
+                distribution: request.distribution,
+                architecture: request.architecture,
+                runtimeEngine: request.runtimeEngine,
+                createdAtISO8601: now,
+                updatedAtISO8601: now
+            )
+            try await registry.upsert(entry)
+            return vmID
         case .qemuFallback:
+            try await validate(request, assets: assets)
             if let assets {
                 try createVMFilesIfNeeded(request: request, assets: assets)
             }
@@ -782,38 +1407,503 @@ actor VMProvisioningPipelineService: VMProvisioningService {
         return vmID
     }
 
+    private func validateInstallerMediaPolicy(request: VMInstallRequest, assets: VMInstallAssets?) throws {
+        guard request.distribution == .popOS else { return }
+        guard let installerURL = assets?.installerImageURL else {
+            throw RuntimeServiceError.missingAssets("Pop!_OS install requires an official installer ISO image.")
+        }
+        guard installerURL.pathExtension.lowercased() == "iso" else {
+            throw RuntimeServiceError.invalidVMRequest(
+                "Pop!_OS install must use installer ISO media. Kernel/initrd-only bootstrap is not supported."
+            )
+        }
+    }
+
+    private func validateRuntimeLaunchPolicy(_ request: VMInstallRequest) throws {
+        if request.distribution == .windows11,
+           (request.runtimeEngine == .appleVirtualization || request.runtimeEngine == .windowsDedicated) {
+            throw RuntimeServiceError.invalidVMRequest(
+                "Windows 11 cannot be launched reliably with the current in-app Apple Virtualization backend in this build. " +
+                "Use Linux guests here, or select a Windows-capable external runtime path."
+            )
+        }
+    }
+
     func startVM(id: UUID) async throws {
-        guard var record = records[id] else { throw RuntimeServiceError.vmNotFound }
+        traceVM("VMProvisioningPipelineService.startVM begin id=\(id.uuidString)")
+        _ = await restoreRecordIfNeeded(id: id)
+        guard var record = records[id] else {
+            traceVM("VMProvisioningPipelineService.startVM missing record id=\(id.uuidString)")
+            throw RuntimeServiceError.vmNotFound
+        }
+        if record.request.distribution == .windows11, record.request.runtimeEngine == .appleVirtualization {
+            record = VMProvisionRecord(
+                id: record.id,
+                request: VMInstallRequest(
+                    distribution: record.request.distribution,
+                    runtimeEngine: .windowsDedicated,
+                    architecture: record.request.architecture,
+                    cpuCores: record.request.cpuCores,
+                    memoryGB: record.request.memoryGB,
+                    diskGB: record.request.diskGB,
+                    enableSharedFolders: record.request.enableSharedFolders,
+                    enableSharedClipboard: record.request.enableSharedClipboard
+                ),
+                assets: record.assets,
+                isRunning: record.isRunning
+            )
+            records[id] = record
+            traceVM("VMProvisioningPipelineService.startVM migrated runtime to windows dedicated id=\(id.uuidString)")
+        }
+        try validateRuntimeLaunchPolicy(record.request)
+
+        switch record.request.runtimeEngine {
+        case .appleVirtualization, .windowsDedicated:
+            guard let assets = record.assets else {
+                traceVM("VMProvisioningPipelineService.startVM missing assets id=\(id.uuidString)")
+                throw RuntimeServiceError.missingAssets("Virtualization flow requires VM assets.")
+            }
+            let installerPath = assets.installerImageURL?.path ?? "nil"
+            let installerExists = assets.installerImageURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+            let preferInstallerFirst = shouldPreferInstallerBoot(
+                request: record.request,
+                assets: assets,
+                installerExists: installerExists
+            )
+            if record.request.distribution == .windows11 && preferInstallerFirst {
+                try resetEFIVariableStoreIfNeeded(at: assets.efiVariableStoreURL)
+            }
+            traceVM(
+                "VMProvisioningPipelineService.startVM media id=\(id.uuidString) " +
+                "disk=\(assets.diskImageURL.lastPathComponent) installerPath=\(installerPath) installerExists=\(installerExists)"
+            )
+            do {
+                traceVM(
+                    "VMProvisioningPipelineService.startVM building configuration id=\(id.uuidString) " +
+                    "bootOrder=\(preferInstallerFirst ? "installerFirst" : "diskFirst")"
+                )
+                let configuration = try buildVirtualizationConfiguration(
+                    request: record.request,
+                    assets: assets,
+                    preferInstallerBoot: preferInstallerFirst
+                )
+                traceVM("VMProvisioningPipelineService.startVM configuration validated id=\(id.uuidString)")
+
+                try await VMConsoleWindowManager.shared.startConsole(
+                    vmID: id,
+                    vmDirectoryPath: assets.vmDirectoryURL.path,
+                    configuration: configuration
+                )
+                traceVM("VMProvisioningPipelineService.startVM console start dispatched id=\(id.uuidString)")
+            } catch {
+                let canRetryWithInstallerBoot =
+                    error.localizedDescription.localizedCaseInsensitiveContains("No bootable OS")
+                    && installerExists
+                guard canRetryWithInstallerBoot else {
+                    throw error
+                }
+
+                traceVM("VMProvisioningPipelineService.startVM retrying id=\(id.uuidString) bootOrder=installerFirst")
+                if record.request.distribution == .windows11 {
+                    try resetEFIVariableStoreIfNeeded(at: assets.efiVariableStoreURL)
+                }
+                let fallbackConfiguration = try buildVirtualizationConfiguration(
+                    request: record.request,
+                    assets: assets,
+                    preferInstallerBoot: true
+                )
+                try await VMConsoleWindowManager.shared.startConsole(
+                    vmID: id,
+                    vmDirectoryPath: assets.vmDirectoryURL.path,
+                    configuration: fallbackConfiguration
+                )
+                traceVM("VMProvisioningPipelineService.startVM fallback console start dispatched id=\(id.uuidString)")
+            }
+
+        case .qemuFallback:
+            traceVM("VMProvisioningPipelineService.startVM qemu fallback begin id=\(id.uuidString)")
+            try await startQEMURuntime(vmID: id, record: record)
+            traceVM("VMProvisioningPipelineService.startVM qemu fallback launched id=\(id.uuidString)")
+        case .nativeInstall:
+            throw RuntimeServiceError.nativeInstallNotSupported
+        }
+
         record.isRunning = true
         records[id] = record
+        traceVM("VMProvisioningPipelineService.startVM complete id=\(id.uuidString)")
     }
 
     func stopVM(id: UUID) async throws {
-        guard var record = records[id] else { throw RuntimeServiceError.vmNotFound }
+        traceVM("VMProvisioningPipelineService.stopVM begin id=\(id.uuidString)")
+        _ = await restoreRecordIfNeeded(id: id)
+        guard var record = records[id] else {
+            traceVM("VMProvisioningPipelineService.stopVM missing record id=\(id.uuidString)")
+            throw RuntimeServiceError.vmNotFound
+        }
+
+        if record.request.runtimeEngine == .appleVirtualization || record.request.runtimeEngine == .windowsDedicated {
+            traceVM("VMProvisioningPipelineService.stopVM dispatching stopConsole vmID=\(id.uuidString)")
+            Task { @MainActor in
+                do {
+                    try await VMConsoleWindowManager.shared.stopConsole(vmID: id)
+                    traceVM("VMProvisioningPipelineService.stopVM console stop complete id=\(id.uuidString)")
+                } catch {
+                    // Keep runtime control responsive even if console teardown reports an error.
+                    traceVM("VMProvisioningPipelineService.stopVM console stop warning id=\(id.uuidString) error=\(error.localizedDescription)")
+                }
+            }
+        } else if record.request.runtimeEngine == .qemuFallback {
+            traceVM("VMProvisioningPipelineService.stopVM stopping qemu runtime vmID=\(id.uuidString)")
+            try stopQEMURuntime(vmID: id, record: record)
+            traceVM("VMProvisioningPipelineService.stopVM qemu runtime stop complete id=\(id.uuidString)")
+        }
+
         record.isRunning = false
         records[id] = record
+        traceVM("VMProvisioningPipelineService.stopVM complete id=\(id.uuidString)")
+    }
+
+    private func restoreRecordIfNeeded(id: UUID) async -> VMProvisionRecord? {
+        if let existing = records[id] {
+            return existing
+        }
+
+        guard let entry = await registry.entry(for: id) else {
+            traceVM("VMProvisioningPipelineService.restoreRecordIfNeeded no registry entry id=\(id.uuidString)")
+            return nil
+        }
+
+        let vmDirectoryURL = URL(fileURLWithPath: entry.vmDirectoryPath, isDirectory: true)
+        let diskImageURL = vmDirectoryURL.appendingPathComponent("disk.img")
+        let efiVariableStoreURL = vmDirectoryURL.appendingPathComponent("efi.vars")
+        let machineIdentifierURL = vmDirectoryURL.appendingPathComponent("machine.id")
+        let installerImageURL = resolveInstallerImageURL(vmDirectoryURL: vmDirectoryURL)
+
+        let assets = VMInstallAssets(
+            vmName: entry.vmName,
+            vmDirectoryURL: vmDirectoryURL,
+            installerImageURL: installerImageURL,
+            kernelImageURL: nil,
+            initialRamdiskURL: nil,
+            diskImageURL: diskImageURL,
+            efiVariableStoreURL: efiVariableStoreURL,
+            machineIdentifierURL: machineIdentifierURL
+        )
+
+        var runtimeEngine = entry.runtimeEngine
+        if entry.distribution == .windows11 && runtimeEngine == .appleVirtualization {
+            runtimeEngine = .windowsDedicated
+            let migratedEntry = VMRegistryEntry(
+                id: entry.id,
+                vmName: entry.vmName,
+                vmDirectoryPath: entry.vmDirectoryPath,
+                distribution: entry.distribution,
+                architecture: entry.architecture,
+                runtimeEngine: runtimeEngine,
+                createdAtISO8601: entry.createdAtISO8601,
+                updatedAtISO8601: ISO8601DateFormatter().string(from: Date())
+            )
+            try? await registry.upsert(migratedEntry)
+            traceVM("VMProvisioningPipelineService.restoreRecordIfNeeded migrated registry runtime id=\(id.uuidString)")
+        }
+
+        let request = VMInstallRequest(
+            distribution: entry.distribution,
+            runtimeEngine: runtimeEngine,
+            architecture: entry.architecture,
+            cpuCores: entry.architecture == .appleSilicon ? 4 : 2,
+            memoryGB: entry.architecture == .appleSilicon ? 8 : 6,
+            diskGB: estimateDiskGB(diskImageURL: diskImageURL),
+            enableSharedFolders: true,
+            enableSharedClipboard: true
+        )
+
+        let restored = VMProvisionRecord(id: id, request: request, assets: assets, isRunning: false)
+        records[id] = restored
+        traceVM(
+            "VMProvisioningPipelineService.restoreRecordIfNeeded restored id=\(id.uuidString) " +
+            "installerPresent=\(installerImageURL != nil)"
+        )
+        return restored
+    }
+
+    private func resolveInstallerImageURL(vmDirectoryURL: URL) -> URL? {
+        let fm = FileManager.default
+
+        // Prefer explicitly staged installer media first.
+        let stagedInstallerURL = vmDirectoryURL.appendingPathComponent("installer.iso")
+        if fm.fileExists(atPath: stagedInstallerURL.path) {
+            return stagedInstallerURL
+        }
+
+        // Fallback: pick VM-local ISO that is not automation seed media.
+        if let vmFiles = try? fm.contentsOfDirectory(
+            at: vmDirectoryURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            let vmISOs = vmFiles.filter {
+                $0.pathExtension.lowercased() == "iso"
+                && $0.lastPathComponent.localizedCaseInsensitiveCompare("automation-seed.iso") != .orderedSame
+            }
+            if let newestVMISO = vmISOs.sorted(
+                by: {
+                    let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    return lhs > rhs
+                }
+            ).first {
+                return newestVMISO
+            }
+        }
+
+        // Fallback to latest downloaded ISO in app downloads.
+        let downloadsURL = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("downloads", isDirectory: true)
+        if let downloadFiles = try? fm.contentsOfDirectory(
+            at: downloadsURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            let isos = downloadFiles.filter { $0.pathExtension.lowercased() == "iso" }
+            if let newestDownloadISO = isos.sorted(
+                by: {
+                    let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    return lhs > rhs
+                }
+            ).first {
+                return newestDownloadISO
+            }
+        }
+
+        return nil
+    }
+
+    private func estimateDiskGB(diskImageURL: URL) -> Int {
+        guard
+            let attrs = try? FileManager.default.attributesOfItem(atPath: diskImageURL.path),
+            let size = attrs[.size] as? NSNumber
+        else {
+            return 64
+        }
+
+        let bytes = max(size.doubleValue, 1)
+        let gb = Int((bytes / 1_073_741_824.0).rounded(.up))
+        return max(gb, 20)
+    }
+
+    private func shouldPreferInstallerBoot(
+        request: VMInstallRequest,
+        assets: VMInstallAssets,
+        installerExists: Bool
+    ) -> Bool {
+        guard installerExists else { return false }
+        guard request.distribution == .windows11 else { return false }
+        return isLikelyFreshDiskImage(at: assets.diskImageURL)
+    }
+
+    private func isLikelyFreshDiskImage(at diskImageURL: URL) -> Bool {
+        guard let values = try? diskImageURL.resourceValues(forKeys: [.fileAllocatedSizeKey]) else {
+            return false
+        }
+        guard let allocated = values.fileAllocatedSize else {
+            return false
+        }
+        // Sparse disk right after scaffold has very low physical allocation.
+        return allocated < 1_073_741_824
+    }
+
+    private func resetEFIVariableStoreIfNeeded(at efiURL: URL) throws {
+        if FileManager.default.fileExists(atPath: efiURL.path) {
+            try FileManager.default.removeItem(at: efiURL)
+            traceVM("VMProvisioningPipelineService.resetEFIVariableStore removed path=\(efiURL.path)")
+        }
+        _ = try VZEFIVariableStore(creatingVariableStoreAt: efiURL)
+        traceVM("VMProvisioningPipelineService.resetEFIVariableStore created path=\(efiURL.path)")
     }
 
     private func createVMFilesIfNeeded(request: VMInstallRequest, assets: VMInstallAssets) throws {
+        traceVM("VMProvisioningPipelineService.createVMFilesIfNeeded begin vmName=\(assets.vmName)")
         try FileManager.default.createDirectory(at: assets.vmDirectoryURL, withIntermediateDirectories: true)
+        traceVM("VMProvisioningPipelineService.createVMFilesIfNeeded vmDirectory ready path=\(assets.vmDirectoryURL.path)")
 
         if !FileManager.default.fileExists(atPath: assets.diskImageURL.path) {
             FileManager.default.createFile(atPath: assets.diskImageURL.path, contents: nil)
             let handle = try FileHandle(forWritingTo: assets.diskImageURL)
             try handle.truncate(atOffset: UInt64(request.diskGB) * 1_073_741_824)
             try handle.close()
+            traceVM("VMProvisioningPipelineService.createVMFilesIfNeeded disk created path=\(assets.diskImageURL.path)")
+        } else {
+            traceVM("VMProvisioningPipelineService.createVMFilesIfNeeded disk exists path=\(assets.diskImageURL.path)")
         }
 
         if !FileManager.default.fileExists(atPath: assets.machineIdentifierURL.path) {
             let machineID = VZGenericMachineIdentifier()
             try machineID.dataRepresentation.write(to: assets.machineIdentifierURL)
+            traceVM("VMProvisioningPipelineService.createVMFilesIfNeeded machine id created path=\(assets.machineIdentifierURL.path)")
+        } else {
+            traceVM("VMProvisioningPipelineService.createVMFilesIfNeeded machine id exists path=\(assets.machineIdentifierURL.path)")
         }
 
         if !FileManager.default.fileExists(atPath: assets.efiVariableStoreURL.path) {
             _ = try VZEFIVariableStore(creatingVariableStoreAt: assets.efiVariableStoreURL)
+            traceVM("VMProvisioningPipelineService.createVMFilesIfNeeded efi vars created path=\(assets.efiVariableStoreURL.path)")
+        } else {
+            traceVM("VMProvisioningPipelineService.createVMFilesIfNeeded efi vars exists path=\(assets.efiVariableStoreURL.path)")
         }
 
-        _ = try createAutomationSeedISOIfSupported(request: request, assets: assets)
+        // Automation media should not block installation if local tooling is unavailable.
+        do {
+            _ = try createAutomationSeedISOIfSupported(request: request, assets: assets)
+            traceVM("VMProvisioningPipelineService.createVMFilesIfNeeded automation seed prepared vmName=\(assets.vmName)")
+        } catch {
+            traceVM(
+                "VMProvisioningPipelineService.createVMFilesIfNeeded automation seed skipped vmName=\(assets.vmName) " +
+                "error=\(error.localizedDescription)"
+            )
+        }
+        traceVM("VMProvisioningPipelineService.createVMFilesIfNeeded complete vmName=\(assets.vmName)")
+    }
+
+    private func startQEMURuntime(vmID: UUID, record: VMProvisionRecord) async throws {
+        guard let assets = record.assets else {
+            throw RuntimeServiceError.missingAssets("QEMU runtime requires VM assets.")
+        }
+
+        if let existing = qemuProcesses[vmID], existing.isRunning {
+            traceVM("VMProvisioningPipelineService.startQEMURuntime already running vmID=\(vmID.uuidString)")
+            return
+        }
+
+        let launchScriptURL = assets.vmDirectoryURL.appendingPathComponent("launch-qemu.sh")
+        if !FileManager.default.fileExists(atPath: launchScriptURL.path) {
+            traceVM(
+                "VMProvisioningPipelineService.startQEMURuntime missing launch script; attempting regeneration " +
+                "vmID=\(vmID.uuidString) path=\(launchScriptURL.path)"
+            )
+            _ = try await qemuHook.scaffoldInstall(for: record.request, assets: assets)
+        }
+        guard FileManager.default.fileExists(atPath: launchScriptURL.path) else {
+            throw RuntimeServiceError.commandFailed("QEMU launch script missing at \(launchScriptURL.path). Reinstall VM scaffold.")
+        }
+
+        let process = Process()
+        process.executableURL = launchScriptURL
+        process.currentDirectoryURL = assets.vmDirectoryURL
+        process.arguments = []
+
+        let runtimeLogURL = assets.vmDirectoryURL.appendingPathComponent("qemu-runtime.log")
+        if !FileManager.default.fileExists(atPath: runtimeLogURL.path) {
+            FileManager.default.createFile(atPath: runtimeLogURL.path, contents: nil)
+        }
+        let logHandle = try FileHandle(forWritingTo: runtimeLogURL)
+        try logHandle.seekToEnd()
+        process.standardOutput = logHandle
+        process.standardError = logHandle
+
+        process.terminationHandler = { _ in
+            try? logHandle.close()
+        }
+
+        try process.run()
+        if !process.isRunning {
+            try? logHandle.close()
+            throw RuntimeServiceError.commandFailed("QEMU process exited immediately. Check \(runtimeLogURL.path).")
+        }
+
+        let pidFileURL = assets.vmDirectoryURL.appendingPathComponent("qemu.pid")
+        try? "\(process.processIdentifier)\n".write(to: pidFileURL, atomically: true, encoding: .utf8)
+
+        qemuProcesses[vmID] = process
+        traceVM(
+            "VMProvisioningPipelineService.startQEMURuntime started vmID=\(vmID.uuidString) " +
+            "pid=\(process.processIdentifier) script=\(launchScriptURL.path)"
+        )
+    }
+
+    private func stopQEMURuntime(vmID: UUID, record: VMProvisionRecord) throws {
+        guard let assets = record.assets else {
+            throw RuntimeServiceError.missingAssets("QEMU runtime requires VM assets.")
+        }
+
+        let pidFileURL = assets.vmDirectoryURL.appendingPathComponent("qemu.pid")
+        defer { try? FileManager.default.removeItem(at: pidFileURL) }
+
+        if let process = qemuProcesses.removeValue(forKey: vmID) {
+            if process.isRunning {
+                process.terminate()
+                traceVM("VMProvisioningPipelineService.stopQEMURuntime terminated in-memory process vmID=\(vmID.uuidString)")
+            }
+            return
+        }
+
+        guard
+            let pidText = try? String(contentsOf: pidFileURL),
+            let pid = Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines))
+        else {
+            traceVM("VMProvisioningPipelineService.stopQEMURuntime no process handle or pid vmID=\(vmID.uuidString)")
+            return
+        }
+
+        let result = kill(pid, SIGTERM)
+        if result == 0 {
+            traceVM("VMProvisioningPipelineService.stopQEMURuntime terminated pid vmID=\(vmID.uuidString) pid=\(pid)")
+        } else {
+            traceVM("VMProvisioningPipelineService.stopQEMURuntime kill failed vmID=\(vmID.uuidString) pid=\(pid) errno=\(errno)")
+        }
+    }
+
+    private func stageInstallerImageIfNeeded(assets: VMInstallAssets) throws -> VMInstallAssets {
+        guard let installerURL = assets.installerImageURL else {
+            return assets
+        }
+
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: assets.vmDirectoryURL, withIntermediateDirectories: true)
+
+        let stagedInstallerURL = assets.vmDirectoryURL.appendingPathComponent("installer.iso")
+        if stagedInstallerURL.path != installerURL.path {
+            if !fileManager.fileExists(atPath: stagedInstallerURL.path) {
+                try fileManager.copyItem(at: installerURL, to: stagedInstallerURL)
+                traceVM(
+                    "VMProvisioningPipelineService.stageInstallerImageIfNeeded copied source=\(installerURL.path) " +
+                    "destination=\(stagedInstallerURL.path)"
+                )
+            } else {
+                traceVM("VMProvisioningPipelineService.stageInstallerImageIfNeeded using existing staged installer path=\(stagedInstallerURL.path)")
+            }
+        }
+
+        return VMInstallAssets(
+            vmName: assets.vmName,
+            vmDirectoryURL: assets.vmDirectoryURL,
+            installerImageURL: stagedInstallerURL,
+            kernelImageURL: assets.kernelImageURL,
+            initialRamdiskURL: assets.initialRamdiskURL,
+            diskImageURL: assets.diskImageURL,
+            efiVariableStoreURL: assets.efiVariableStoreURL,
+            machineIdentifierURL: assets.machineIdentifierURL
+        )
+    }
+
+    private func withTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw RuntimeServiceError.commandFailed("VM stop timed out after \(Int(seconds)) seconds.")
+            }
+
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
     }
 
     private func createAutomationSeedISOIfSupported(request: VMInstallRequest, assets: VMInstallAssets) throws -> URL? {
@@ -903,6 +1993,8 @@ actor VMProvisioningPipelineService: VMProvisioningService {
         case .ubuntu: return .ubuntuCloudInit
         case .debian: return .debianPreseed
         case .fedora: return .fedoraKickstart
+        case .nixOS: return .manualOnly
+        case .windows11: return .manualOnly
         case .openSUSE: return .openSUSEAutoYaST
         case .popOS: return .manualOnly
         }
@@ -910,12 +2002,9 @@ actor VMProvisioningPipelineService: VMProvisioningService {
 
     private func buildVirtualizationConfiguration(
         request: VMInstallRequest,
-        assets: VMInstallAssets
+        assets: VMInstallAssets,
+        preferInstallerBoot: Bool = false
     ) throws -> VZVirtualMachineConfiguration {
-        guard let installerImageURL = assets.installerImageURL else {
-            throw RuntimeServiceError.missingAssets("Installer image URL is required for Virtualization flow.")
-        }
-
         let config = VZVirtualMachineConfiguration()
         config.cpuCount = request.cpuCores
         config.memorySize = UInt64(request.memoryGB) * 1_073_741_824
@@ -940,16 +2029,35 @@ actor VMProvisioningPipelineService: VMProvisioningService {
 
         let diskAttachment = try VZDiskImageStorageDeviceAttachment(url: assets.diskImageURL, readOnly: false)
         let diskDevice = VZVirtioBlockDeviceConfiguration(attachment: diskAttachment)
+        var storageDevices: [VZStorageDeviceConfiguration] = [diskDevice]
 
-        let isoAttachment = try VZDiskImageStorageDeviceAttachment(url: installerImageURL, readOnly: true)
-        let isoDevice = VZUSBMassStorageDeviceConfiguration(attachment: isoAttachment)
-        var storageDevices: [VZStorageDeviceConfiguration] = [isoDevice, diskDevice]
+        if let installerImageURL = assets.installerImageURL,
+           FileManager.default.fileExists(atPath: installerImageURL.path) {
+            let isoAttachment = try VZDiskImageStorageDeviceAttachment(url: installerImageURL, readOnly: true)
+            // Expose installer ISO as USB mass storage to keep firmware boot behavior consistent
+            // across Linux and Windows installers.
+            let isoDevice = VZUSBMassStorageDeviceConfiguration(attachment: isoAttachment)
+            traceVM(
+                "VMProvisioningPipelineService.buildVirtualizationConfiguration media " +
+                "distribution=\(request.distribution.rawValue) installer=\(installerImageURL.lastPathComponent) attachment=usb-mass-storage"
+            )
+            if preferInstallerBoot {
+                storageDevices.insert(isoDevice, at: 0)
+            } else {
+                // Keep installed disk first so restored VMs boot from their OS by default.
+                storageDevices.append(isoDevice)
+            }
+        }
 
         let automationISO = assets.vmDirectoryURL.appendingPathComponent("automation-seed.iso")
         if FileManager.default.fileExists(atPath: automationISO.path) {
             let autoAttachment = try VZDiskImageStorageDeviceAttachment(url: automationISO, readOnly: true)
             let autoDevice = VZUSBMassStorageDeviceConfiguration(attachment: autoAttachment)
             storageDevices.append(autoDevice)
+            traceVM(
+                "VMProvisioningPipelineService.buildVirtualizationConfiguration media " +
+                "distribution=\(request.distribution.rawValue) installer=\(automationISO.lastPathComponent) attachment=usb-mass-storage"
+            )
         }
 
         config.storageDevices = storageDevices

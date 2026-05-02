@@ -34,9 +34,21 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var lastRunReportPath: String = ""
     @Published private(set) var activeVMID: UUID?
     @Published private(set) var lastManagedVMID: UUID?
+    @Published private(set) var installedVMEntries: [VMRegistryEntry] = []
+    @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
 
     @Published private(set) var downloadStatusMessage: String = ""
     @Published private(set) var downloadedInstallerPath: String = ""
+    @Published private(set) var hasDownloadedInstallers: Bool = false
+    @Published private(set) var isDownloadInProgress: Bool = false
+    @Published private(set) var downloadProgressFraction: Double?
+    @Published private(set) var downloadSpeedText: String = ""
+    @Published private(set) var downloadETAText: String = ""
+    @Published private(set) var installProgressFraction: Double?
+    @Published private(set) var installSpeedText: String = ""
+    @Published private(set) var installETAText: String = ""
+    @Published private(set) var qemuRuntimeStatusMessage: String = ""
+    @Published private(set) var isQEMUAvailable: Bool?
 
     private let hostService: HostProfileService
     private let catalogService: DistributionCatalogService
@@ -52,6 +64,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private var lastCatalogRefresh: Date?
     private let sourceMonitoringInterval: TimeInterval = 60 * 30
     private var cachedArtifacts: [HostArchitecture: [DistributionArtifact]] = [:]
+    private var activeDownloadStartDate: Date?
+    private var activeInstallStartDate: Date?
 
     init(
         hostService: HostProfileService = DefaultHostProfileService(),
@@ -75,6 +89,154 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         self.downloader = downloader
         self.registry = registry
         self.observability = observability
+
+        traceVM("Build marker: VM-LAUNCH-DIAG-2026-04-23T00:00Z")
+        Task {
+            let logPath = await DebugTraceLogger.shared.path()
+            let downloadPath = (try? self.downloadsDirectory().path) ?? "unavailable"
+            await DebugTraceLogger.shared.append("RuntimeWorkbenchViewModel init complete. downloadDirectoryPath=\(downloadPath)")
+            await DebugTraceLogger.shared.append("Debug trace log path: \(logPath)")
+            await MainActor.run {
+                self.refreshDownloadedInstallerPresence()
+                self.loadCustomCatalogEntries()
+            }
+        }
+    }
+
+    func addCustomCatalogEntry(
+        displayName: String,
+        installerPath: String,
+        architecture: HostArchitecture,
+        runtimeEngine: RuntimeEngine,
+        baseDistribution: LinuxDistribution
+    ) throws {
+        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw RuntimeServiceError.invalidVMRequest("Custom OS name is required.")
+        }
+
+        let trimmedPath = installerPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else {
+            throw RuntimeServiceError.invalidVMRequest("Installer path is required.")
+        }
+
+        let fileURL = URL(fileURLWithPath: trimmedPath)
+        guard fileURL.pathExtension.lowercased() == "iso",
+              FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw RuntimeServiceError.invalidVMRequest("Installer must be an existing ISO file.")
+        }
+
+        let entry = CustomCatalogEntry(
+            id: UUID(),
+            displayName: trimmedName,
+            installerPath: fileURL.path,
+            architecture: architecture,
+            runtimeEngine: runtimeEngine,
+            baseDistribution: baseDistribution,
+            createdAtISO8601: ISO8601DateFormatter().string(from: Date())
+        )
+        customCatalogEntries.insert(entry, at: 0)
+        try persistCustomCatalogEntries()
+    }
+
+    func removeCustomCatalogEntry(id: UUID) throws {
+        customCatalogEntries.removeAll { $0.id == id }
+        try persistCustomCatalogEntries()
+    }
+
+    func updateCustomCatalogEntry(
+        id: UUID,
+        displayName: String,
+        installerPath: String,
+        architecture: HostArchitecture,
+        runtimeEngine: RuntimeEngine,
+        baseDistribution: LinuxDistribution
+    ) throws {
+        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw RuntimeServiceError.invalidVMRequest("Custom OS name is required.")
+        }
+        let trimmedPath = installerPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard validateCustomInstallerPath(trimmedPath) else {
+            throw RuntimeServiceError.invalidVMRequest("Installer must be an existing ISO file.")
+        }
+        guard let index = customCatalogEntries.firstIndex(where: { $0.id == id }) else {
+            throw RuntimeServiceError.invalidVMRequest("Custom OS entry not found.")
+        }
+        customCatalogEntries[index] = CustomCatalogEntry(
+            id: id,
+            displayName: trimmedName,
+            installerPath: trimmedPath,
+            architecture: architecture,
+            runtimeEngine: runtimeEngine,
+            baseDistribution: baseDistribution,
+            createdAtISO8601: customCatalogEntries[index].createdAtISO8601
+        )
+        try persistCustomCatalogEntries()
+    }
+
+    func validateCustomInstallerPath(_ path: String) -> Bool {
+        let fileURL = URL(fileURLWithPath: path.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard fileURL.pathExtension.lowercased() == "iso",
+              FileManager.default.fileExists(atPath: fileURL.path) else {
+            return false
+        }
+        return true
+    }
+
+    func customCatalogEntriesForCurrentArchitecture(_ architecture: HostArchitecture) -> [CustomCatalogEntry] {
+        customCatalogEntries.filter { $0.architecture == architecture }
+    }
+
+    func suggestedDistributionForInstaller(_ path: String) -> LinuxDistribution? {
+        let lowerPath = path.lowercased()
+        if lowerPath.contains("ubuntu") { return .ubuntu }
+        if lowerPath.contains("debian") { return .debian }
+        if lowerPath.contains("fedora") { return .fedora }
+        if lowerPath.contains("pop") { return .popOS }
+        if lowerPath.contains("nixos") || lowerPath.contains("nix") { return .nixOS }
+        if lowerPath.contains("opensuse") || lowerPath.contains("suse") { return .openSUSE }
+        if lowerPath.contains("win11") || lowerPath.contains("windows") { return .windows11 }
+
+        let fileURL = URL(fileURLWithPath: path)
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
+            return nil
+        }
+        defer { try? handle.close() }
+        let prefixData = (try? handle.read(upToCount: 2_000_000)) ?? Data()
+        guard let text = String(data: prefixData, encoding: .ascii)?.lowercased() else {
+            return nil
+        }
+        if text.contains("ubuntu") { return .ubuntu }
+        if text.contains("debian") { return .debian }
+        if text.contains("fedora") { return .fedora }
+        if text.contains("pop!_os") || text.contains("pop os") { return .popOS }
+        if text.contains("nixos") { return .nixOS }
+        if text.contains("opensuse") { return .openSUSE }
+        if text.contains("windows") { return .windows11 }
+        return nil
+    }
+
+    func exportCustomCatalog(to destinationURL: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(customCatalogEntries)
+        try data.write(to: destinationURL, options: [.atomic])
+    }
+
+    func importCustomCatalog(from sourceURL: URL, merge: Bool = true) throws {
+        let data = try Data(contentsOf: sourceURL)
+        let imported = try JSONDecoder().decode([CustomCatalogEntry].self, from: data)
+        if merge {
+            var byID: [UUID: CustomCatalogEntry] = Dictionary(uniqueKeysWithValues: customCatalogEntries.map { ($0.id, $0) })
+            for entry in imported {
+                byID[entry.id] = entry
+            }
+            customCatalogEntries = byID.values.sorted { $0.createdAtISO8601 > $1.createdAtISO8601 }
+        } else {
+            customCatalogEntries = imported
+        }
+        try persistCustomCatalogEntries()
     }
 
     func restoreVMRegistryState() async {
@@ -96,10 +258,14 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         let entries = await registry.allEntries()
         if entries.isEmpty {
             registryStatusMessage = "VM registry is empty."
-            if !applyRestoredRuntimeSession(restoredSession) {
-                installLifecycleState = .idle
-                installLifecycleDetail = "No persisted VM install scaffolds were found."
-            }
+            activeVMID = nil
+            lastManagedVMID = nil
+            installedVMEntries = []
+            clearRuntimeSessionSnapshot()
+            installLifecycleState = .idle
+            installLifecycleDetail = "No persisted VM install scaffolds were found."
+            vmRuntimeState = .stopped
+            vmRuntimeStatusMessage = "No active VM runtime."
             await logRunEvent(stage: .registryRestore, result: .success, vmID: nil, message: "Registry restore finished with no entries.")
             return
         }
@@ -145,15 +311,42 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             installLifecycleDetail = "No valid VM scaffold entries were restored."
             vmRuntimeState = .stopped
         }
+        installedVMEntries = validEntries
 
         registryStatusMessage = "Registry restored \(validEntries.count) VM entries, pruned \(prunedCount) stale entries."
-        _ = applyRestoredRuntimeSession(restoredSession)
+        _ = applyRestoredRuntimeSession(restoredSession, validVMIDs: Set(validEntries.map(\.id)))
         await logRunEvent(
             stage: .registryRestore,
             result: .success,
             vmID: activeVMID,
             message: "Registry restored \(validEntries.count) entries and pruned \(prunedCount)."
         )
+    }
+
+    func reconcileManagedVMIdentifiers() async {
+        let entries = await registry.allEntries()
+        let installedEntries = entries.filter { FileManager.default.fileExists(atPath: $0.vmDirectoryPath) }
+        installedVMEntries = installedEntries
+        let validIDs = Set(installedEntries.map(\.id))
+        let previousActive = activeVMID
+        let previousLast = lastManagedVMID
+
+        if let activeVMID, !validIDs.contains(activeVMID) {
+            self.activeVMID = nil
+        }
+        if let lastManagedVMID, !validIDs.contains(lastManagedVMID) {
+            self.lastManagedVMID = nil
+        }
+        if self.activeVMID == nil && self.lastManagedVMID == nil {
+            clearRuntimeSessionSnapshot()
+        }
+
+        if previousActive != self.activeVMID || previousLast != self.lastManagedVMID {
+            traceVM(
+                "RuntimeWorkbenchViewModel.reconcileManagedVMIdentifiers updated " +
+                "active=\(self.activeVMID?.uuidString ?? "nil") lastManaged=\(self.lastManagedVMID?.uuidString ?? "nil")"
+            )
+        }
     }
 
     func loadStoredGitHubToken() -> String {
@@ -265,6 +458,20 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func probeQEMUAvailability(for architecture: HostArchitecture) async -> Bool {
+        let qemuBinary = QEMUBinaryLocator.binaryName(for: architecture)
+        if let locatedPath = QEMUBinaryLocator.locateBinaryPath(for: architecture) {
+            isQEMUAvailable = true
+            qemuRuntimeStatusMessage = "QEMU found: \(locatedPath)"
+            return true
+        }
+
+        isQEMUAvailable = false
+        qemuRuntimeStatusMessage = "QEMU missing: install \(qemuBinary) before using this runtime."
+        return false
+    }
+
     func refreshKeyringStatus(for distribution: LinuxDistribution) {
         let required = catalogService.requiredKeyringFileNames(for: distribution)
         let directory = keyringDirectoryURL()
@@ -345,14 +552,28 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         )
 
         do {
+            isDownloadInProgress = true
+            defer { isDownloadInProgress = false }
             let downloadsDir = try downloadsDirectory()
             let destinationURL = downloadsDir.appendingPathComponent(artifact.downloadURL.lastPathComponent)
+            activeDownloadStartDate = Date()
+            downloadProgressFraction = nil
+            downloadSpeedText = ""
+            downloadETAText = ""
 
             try await downloader.downloadArtifact(
                 primaryURL: artifact.downloadURL,
                 mirrorURLs: artifact.mirrorURLs,
                 destinationURL: destinationURL,
-                maxRetriesPerURL: 3
+                maxRetriesPerURL: 3,
+                progressHandler: { [weak self] progress in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.downloadProgressFraction = progress.fractionCompleted
+                        self.downloadStatusMessage = "Downloading \(artifact.distribution.rawValue): \(self.formatDownloadProgress(progress))"
+                        self.updateDownloadSpeedAndETA(progress)
+                    }
+                }
             )
 
             if !artifact.checksumSHA256.isEmpty {
@@ -363,6 +584,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             }
 
             downloadedInstallerPath = destinationURL.path
+            hasDownloadedInstallers = true
+            downloadProgressFraction = 1.0
+            downloadSpeedText = ""
+            downloadETAText = ""
             downloadStatusMessage = "Downloaded installer: \(destinationURL.path)"
             checksumStatusMessage = artifact.checksumSHA256.isEmpty
                 ? "Checksum feed unavailable; verify manually if required."
@@ -376,7 +601,16 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 message: "Download succeeded at \(destinationURL.path)."
             )
         } catch {
-            downloadStatusMessage = "Download failed: \(error.localizedDescription)"
+            isDownloadInProgress = false
+            downloadProgressFraction = nil
+            downloadSpeedText = ""
+            downloadETAText = ""
+            if error is CancellationError || Task.isCancelled {
+                downloadStatusMessage = "Download canceled."
+            } else {
+                downloadStatusMessage = "Download failed: \(error.localizedDescription)"
+            }
+            refreshDownloadedInstallerPresence()
             await logRunEvent(
                 stage: .artifactDownload,
                 result: .failed,
@@ -384,6 +618,139 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 message: error.localizedDescription
             )
         }
+    }
+
+    func cancelDownloadStatus(for distribution: LinuxDistribution?) -> String {
+        let label = distribution?.rawValue ?? "installer"
+        let percent: String
+        if let fraction = downloadProgressFraction {
+            percent = "\(Int((fraction * 100).rounded()))%"
+        } else {
+            percent = "in progress"
+        }
+        return "Stopping \(label) download at \(percent)..."
+    }
+
+    func markDownloadCancellationRequested() {
+        downloadStatusMessage = "Download cancellation requested..."
+    }
+
+    func removeManagedVMAndDownloadedInstallers(removeArtifacts: Bool = true) async {
+        let managedVMID = activeVMID ?? lastManagedVMID
+        if managedVMID != nil {
+            await uninstallActiveVM(removeArtifacts: removeArtifacts)
+        }
+
+        var removedDownloadCount = 0
+        do {
+            let downloadsDir = try downloadsDirectory()
+            let files = try FileManager.default.contentsOfDirectory(
+                at: downloadsDir,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+            for file in files where file.pathExtension.lowercased() == "iso" {
+                try FileManager.default.removeItem(at: file)
+                removedDownloadCount += 1
+            }
+        } catch {
+            cleanupStatusMessage = "Cleanup failed while removing downloaded installers: \(error.localizedDescription)"
+            return
+        }
+
+        downloadedInstallerPath = ""
+        refreshDownloadedInstallerPresence()
+        if removedDownloadCount > 0 {
+            downloadStatusMessage = "Removed \(removedDownloadCount) downloaded installer file(s)."
+        } else if managedVMID == nil {
+            cleanupStatusMessage = "No installed VM or downloaded installers were found."
+        }
+    }
+
+    private func formatDownloadProgress(_ progress: ArtifactDownloadProgress) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+
+        let received = formatter.string(fromByteCount: progress.receivedBytes)
+        if let total = progress.totalBytes, total > 0 {
+            let totalText = formatter.string(fromByteCount: total)
+            let percent = Int(((progress.fractionCompleted ?? 0) * 100).rounded())
+            return "\(percent)% (\(received) / \(totalText))"
+        }
+
+        return "\(received) downloaded"
+    }
+
+    private func customCatalogStoreURL() -> URL {
+        RuntimeEnvironment.mlIntegrationRootURL()
+            .deletingLastPathComponent()
+            .appendingPathComponent("MLIntegration", isDirectory: true)
+            .appendingPathComponent("custom-os-catalog.json")
+    }
+
+    private func loadCustomCatalogEntries() {
+        let url = customCatalogStoreURL()
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            customCatalogEntries = []
+            return
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            if data.isEmpty {
+                customCatalogEntries = []
+                return
+            }
+            customCatalogEntries = try JSONDecoder().decode([CustomCatalogEntry].self, from: data)
+        } catch {
+            customCatalogEntries = []
+            vmStatusMessage = "Failed to load custom OS catalog: \(error.localizedDescription)"
+        }
+    }
+
+    private func persistCustomCatalogEntries() throws {
+        let url = customCatalogStoreURL()
+        let directory = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(customCatalogEntries)
+        try data.write(to: url, options: [.atomic])
+    }
+
+    private func updateDownloadSpeedAndETA(_ progress: ArtifactDownloadProgress) {
+        guard let startedAt = activeDownloadStartDate else {
+            downloadSpeedText = ""
+            downloadETAText = ""
+            return
+        }
+
+        let elapsed = Date().timeIntervalSince(startedAt)
+        guard elapsed > 0.25 else {
+            downloadSpeedText = ""
+            downloadETAText = ""
+            return
+        }
+
+        let bytesPerSecond = Double(progress.receivedBytes) / elapsed
+        let speedFormatter = ByteCountFormatter()
+        speedFormatter.allowedUnits = [.useMB]
+        speedFormatter.countStyle = .file
+        downloadSpeedText = "Speed: \(speedFormatter.string(fromByteCount: Int64(max(bytesPerSecond, 0))))/s"
+
+        if let total = progress.totalBytes, total > progress.receivedBytes, bytesPerSecond > 0 {
+            let remainingBytes = Double(total - progress.receivedBytes)
+            let etaSeconds = Int(ceil(remainingBytes / bytesPerSecond))
+            downloadETAText = "ETA: \(formatETA(seconds: etaSeconds))"
+        } else {
+            downloadETAText = "ETA: Calculating..."
+        }
+    }
+
+    private func formatETA(seconds: Int) -> String {
+        if seconds < 60 { return "\(seconds)s" }
+        if seconds < 3600 { return "\(seconds / 60)m \(seconds % 60)s" }
+        return "\(seconds / 3600)h \((seconds % 3600) / 60)m"
     }
 
     func scaffoldInstall(
@@ -395,6 +762,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         kernelImagePath: String,
         initialRamdiskPath: String
     ) async {
+        activeInstallStartDate = Date()
+        installProgressFraction = 0.05
+        installSpeedText = "Speed: local disk I/O"
+        installETAText = "ETA: Calculating..."
+
         do {
             let runID = try await observability.beginRun(vmID: nil)
             currentRunID = runID
@@ -405,6 +777,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
         installLifecycleState = .validating
         installLifecycleDetail = ""
+        installProgressFraction = 0.2
+        installETAText = "ETA: < 1 min"
         await logRunEvent(stage: .installValidation, result: .inProgress, vmID: nil, message: "Validating install request.")
 
         let request = VMInstallRequest(
@@ -437,12 +811,17 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             )
 
             installLifecycleState = .scaffolding
+            installProgressFraction = 0.65
+            installETAText = "ETA: < 30s"
             await logRunEvent(stage: .installScaffolding, result: .inProgress, vmID: nil, message: "Scaffolding VM assets.")
             let vmID = try await provisioningService.installVM(using: request, assets: assets)
             activeVMID = vmID
             lastManagedVMID = vmID
+            await reconcileManagedVMIdentifiers()
             installLifecycleState = .ready
             installLifecycleDetail = "Install scaffold completed for VM \(vmID.uuidString)."
+            installProgressFraction = 1.0
+            installETAText = "ETA: 0s"
             vmRuntimeState = .stopped
             vmRuntimeStatusMessage = "VM scaffold is ready and currently stopped."
             vmStatusMessage = "VM pipeline scaffolded with automation assets when supported. ID: \(vmID.uuidString). VM assets at: \(assets.vmDirectoryURL.path)"
@@ -451,27 +830,49 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         } catch {
             installLifecycleState = .failed
             installLifecycleDetail = error.localizedDescription
+            installProgressFraction = nil
+            installETAText = ""
             vmStatusMessage = "VM pipeline failed: \(error.localizedDescription)"
             await logRunEvent(stage: .installScaffolding, result: .failed, vmID: nil, message: error.localizedDescription)
+        }
+
+        if let startedAt = activeInstallStartDate {
+            let elapsed = max(Date().timeIntervalSince(startedAt), 0.01)
+            installSpeedText = "Speed: \(String(format: "%.1f", 1.0 / elapsed)) phases/s"
         }
     }
 
     func startActiveVM() async {
-        guard let vmID = activeVMID else {
+        await reconcileManagedVMIdentifiers()
+        guard let vmID = activeVMID ?? lastManagedVMID else {
             vmRuntimeStatusMessage = IntegrationRuntimeError.vmNotSelected.localizedDescription
+            traceVM("startActiveVM exit no vm selected")
             return
         }
+        activeVMID = vmID
+        traceVM("startActiveVM requested vmID=\(vmID.uuidString)")
 
         vmRuntimeState = .starting
+        vmRuntimeStatusMessage = "Starting VM \(vmID.uuidString)..."
         await logRunEvent(stage: .vmRuntimeControl, result: .inProgress, vmID: vmID, message: "Starting VM runtime.")
 
         do {
+            traceVM("startActiveVM async begin vmID=\(vmID.uuidString)")
             try await provisioningService.startVM(id: vmID)
+            traceVM("startActiveVM provisioningService.startVM returned vmID=\(vmID.uuidString)")
             vmRuntimeState = .running
             vmRuntimeStatusMessage = "VM \(vmID.uuidString) is running."
             persistRuntimeSessionSnapshot(vmID: vmID, state: .running)
             await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: vmRuntimeStatusMessage)
         } catch {
+            traceVM("startActiveVM failed vmID=\(vmID.uuidString) error=\(error.localizedDescription)")
+            if case RuntimeServiceError.vmNotFound = error {
+                activeVMID = nil
+                lastManagedVMID = nil
+                clearRuntimeSessionSnapshot()
+                installLifecycleState = .idle
+                installLifecycleDetail = "No VM scaffold is currently installed. Install an OS first."
+            }
             vmRuntimeState = .failed
             vmRuntimeStatusMessage = "Start VM failed: \(error.localizedDescription)"
             await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
@@ -479,32 +880,40 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     func stopActiveVM() async {
-        guard let vmID = activeVMID else {
+        guard let vmID = activeVMID ?? lastManagedVMID else {
             vmRuntimeStatusMessage = IntegrationRuntimeError.vmNotSelected.localizedDescription
+            traceVM("stopActiveVM exit no vm selected")
             return
         }
+        activeVMID = vmID
+        traceVM("stopActiveVM requested vmID=\(vmID.uuidString)")
 
         vmRuntimeState = .stopping
         await logRunEvent(stage: .vmRuntimeControl, result: .inProgress, vmID: vmID, message: "Stopping VM runtime.")
 
-        do {
-            try await provisioningService.stopVM(id: vmID)
-            vmRuntimeState = .stopped
-            vmRuntimeStatusMessage = "VM \(vmID.uuidString) is stopped."
-            persistRuntimeSessionSnapshot(vmID: vmID, state: .stopped)
-            await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: vmRuntimeStatusMessage)
-        } catch {
-            vmRuntimeState = .failed
-            vmRuntimeStatusMessage = "Stop VM failed: \(error.localizedDescription)"
-            await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
+        traceVM("stopActiveVM dispatching provisioningService.stopVM vmID=\(vmID.uuidString)")
+        Task {
+            do {
+                try await provisioningService.stopVM(id: vmID)
+                traceVM("stopActiveVM provisioningService.stopVM returned vmID=\(vmID.uuidString)")
+                await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: "VM \(vmID.uuidString) stop request completed.")
+            } catch {
+                traceVM("stopActiveVM failed vmID=\(vmID.uuidString) error=\(error.localizedDescription)")
+                await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
+            }
         }
+
+        vmRuntimeState = .stopped
+        vmRuntimeStatusMessage = "VM \(vmID.uuidString) stop request dispatched."
+        persistRuntimeSessionSnapshot(vmID: vmID, state: .stopped)
     }
 
     func restartActiveVM() async {
-        guard activeVMID != nil else {
+        guard let vmID = activeVMID ?? lastManagedVMID else {
             vmRuntimeStatusMessage = IntegrationRuntimeError.vmNotSelected.localizedDescription
             return
         }
+        activeVMID = vmID
 
         vmRuntimeState = .restarting
         await stopActiveVM()
@@ -557,7 +966,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     func uninstallActiveVM(removeArtifacts: Bool = true) async {
-        guard let vmID = activeVMID else {
+        guard let vmID = activeVMID ?? lastManagedVMID else {
             cleanupStatusMessage = IntegrationRuntimeError.vmNotSelected.localizedDescription
             cleanupReport = []
             return
@@ -577,6 +986,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             vmRuntimeState = .stopped
             vmRuntimeStatusMessage = "No active VM runtime."
             clearRuntimeSessionSnapshot()
+            await reconcileManagedVMIdentifiers()
             await logRunEvent(stage: .cleanup, result: .success, vmID: vmID, message: cleanupStatusMessage)
         } catch {
             cleanupStatusMessage = "Uninstall failed: \(error.localizedDescription)"
@@ -599,6 +1009,18 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             cleanupStatusMessage = "Cleanup verification failed: \(error.localizedDescription)"
             cleanupReport = []
         }
+    }
+
+    func selectManagedVM(_ id: UUID?) async {
+        await reconcileManagedVMIdentifiers()
+        guard let id else { return }
+        guard installedVMEntries.contains(where: { $0.id == id }) else {
+            vmRuntimeStatusMessage = "Selected VM is no longer installed."
+            return
+        }
+        activeVMID = id
+        lastManagedVMID = id
+        persistRuntimeSessionSnapshot(vmID: id, state: vmRuntimeState)
     }
 
     func escalateToDevelopers(
@@ -664,6 +1086,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             escalationStatusMessage = "Escalation failed: \(error.localizedDescription)"
             await logRunEvent(stage: .escalation, result: .failed, vmID: activeVMID, message: error.localizedDescription)
         }
+    }
+
+    func createIssueDiagnosticsBundle(title: String, details: String) throws -> URL {
+        try createDiagnosticsBundle(title: title, details: details)
     }
 
     private func createDiagnosticsBundle(title: String, details: String) throws -> URL {
@@ -742,6 +1168,65 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return directory
     }
 
+    func refreshDownloadedInstallerPresence() {
+        guard let directory = try? downloadsDirectory() else {
+            hasDownloadedInstallers = false
+            return
+        }
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            hasDownloadedInstallers = false
+            return
+        }
+        hasDownloadedInstallers = files.contains { $0.pathExtension.lowercased() == "iso" }
+    }
+
+    func validateInstallerFile(for artifact: DistributionArtifact, localPath: String) async -> Bool {
+        let trimmedPath = localPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else {
+            checksumStatusMessage = "Installer file path is empty."
+            return false
+        }
+
+        let fileURL = URL(fileURLWithPath: trimmedPath)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            checksumStatusMessage = "Installer file is missing at \(fileURL.path)."
+            return false
+        }
+
+        do {
+            let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+            let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+            // Reject tiny/incomplete ISO files before start/install.
+            guard size >= 300 * 1_024 * 1_024 else {
+                checksumStatusMessage = "Installer file appears incomplete (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))). Re-download required."
+                return false
+            }
+        } catch {
+            checksumStatusMessage = "Installer validation failed: \(error.localizedDescription)"
+            return false
+        }
+
+        if !artifact.checksumSHA256.isEmpty {
+            do {
+                let matches = try await catalogService.verifyChecksum(for: artifact, at: fileURL)
+                checksumStatusMessage = matches
+                    ? "Checksum verified for \(artifact.distribution.rawValue)."
+                    : "Checksum mismatch for \(artifact.distribution.rawValue). Re-download required."
+                return matches
+            } catch {
+                checksumStatusMessage = "Checksum verification failed: \(error.localizedDescription)"
+                return false
+            }
+        }
+
+        checksumStatusMessage = "No checksum feed available; size validation passed."
+        return true
+    }
+
     private func keyringDirectoryURL() -> URL {
         let directory = baseDirectory()
             .appendingPathComponent("keys", isDirectory: true)
@@ -766,8 +1251,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             .appendingPathComponent(resolvedName, isDirectory: true)
 
         let installerURL = nonEmptyPathURL(installerImagePath)
-        guard installerURL != nil else {
+        guard let installerURL else {
             throw RuntimeServiceError.missingAssets("Installer image path is required.")
+        }
+        guard FileManager.default.fileExists(atPath: installerURL.path) else {
+            throw RuntimeServiceError.missingAssets("Installer image is missing at path: \(installerURL.path). Re-download and try install again.")
         }
 
         let kernelURL = nonEmptyPathURL(kernelImagePath)
@@ -860,8 +1348,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     @discardableResult
-    private func applyRestoredRuntimeSession(_ snapshot: RuntimeSessionSnapshot?) -> Bool {
+    private func applyRestoredRuntimeSession(_ snapshot: RuntimeSessionSnapshot?, validVMIDs: Set<UUID> = []) -> Bool {
         guard let snapshot else {
+            return false
+        }
+        if !validVMIDs.isEmpty, !validVMIDs.contains(snapshot.vmID) {
+            clearRuntimeSessionSnapshot()
             return false
         }
 

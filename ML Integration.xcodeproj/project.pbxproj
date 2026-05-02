@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		70DB13AB2F9A7BAF00AE2A9E /* DebugTraceLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70DB13AA2F9A7BAF00AE2A9E /* DebugTraceLogger.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		7041CA232F92BA8F0015A49D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -28,6 +32,7 @@
 		7041CA152F92BA8D0015A49D /* ML Integration.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "ML Integration.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7041CA222F92BA8F0015A49D /* ML IntegrationTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "ML IntegrationTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7041CA2C2F92BA8F0015A49D /* ML IntegrationUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "ML IntegrationUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		70DB13AA2F9A7BAF00AE2A9E /* DebugTraceLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugTraceLogger.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -81,6 +86,7 @@
 				7041CA2F2F92BA8F0015A49D /* ML IntegrationUITests */,
 				7041CA162F92BA8D0015A49D /* Products */,
 				702779612F94038F003BAB7A /* ML Integration.entitlements */,
+				70DB13AA2F9A7BAF00AE2A9E /* DebugTraceLogger.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -238,6 +244,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				70DB13AB2F9A7BAF00AE2A9E /* DebugTraceLogger.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -396,6 +403,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "ML Integration/ML Integration.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -420,7 +428,6 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				CODE_SIGN_ENTITLEMENTS = "ML Integration/ML Integration.entitlements";
 			};
 			name = Debug;
 		};
@@ -429,6 +436,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "ML Integration/ML Integration.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -453,7 +461,6 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				CODE_SIGN_ENTITLEMENTS = "ML Integration/ML Integration.entitlements";
 			};
 			name = Release;
 		};

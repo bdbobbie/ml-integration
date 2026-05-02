@@ -10,6 +10,7 @@ enum HostArchitecture: String, CaseIterable, Identifiable, Codable {
 enum RuntimeEngine: String, CaseIterable, Identifiable, Codable {
     case appleVirtualization = "Apple Virtualization.framework"
     case qemuFallback = "QEMU Fallback"
+    case windowsDedicated = "Windows Dedicated Runtime"
     case nativeInstall = "Native Install (Advanced)"
 
     var id: String { rawValue }
@@ -37,6 +38,8 @@ enum LinuxDistribution: String, CaseIterable, Identifiable, Codable {
     case fedora = "Fedora"
     case debian = "Debian"
     case popOS = "Pop!_OS"
+    case nixOS = "NixOS"
+    case windows11 = "Windows 11"
     case openSUSE = "openSUSE"
 
     var id: String { rawValue }
@@ -80,6 +83,16 @@ struct DistributionArtifact: Identifiable, Equatable {
     let checksumSHA256: String
     let signatureExpected: Bool
     let signatureVerifiedAtSource: Bool
+}
+
+struct CustomCatalogEntry: Identifiable, Codable, Equatable {
+    let id: UUID
+    let displayName: String
+    let installerPath: String
+    let architecture: HostArchitecture
+    let runtimeEngine: RuntimeEngine
+    let baseDistribution: LinuxDistribution
+    let createdAtISO8601: String
 }
 
 struct VMInstallAssets: Equatable {
