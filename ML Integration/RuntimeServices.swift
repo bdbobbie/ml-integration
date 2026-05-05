@@ -1,6 +1,6 @@
 import Foundation
 import CryptoKit
-import Virtualization
+@preconcurrency import Virtualization
 import AppKit
 
 enum RuntimeServiceError: LocalizedError {
@@ -133,7 +133,7 @@ struct ArtifactDownloadProgress: Sendable {
     }
 }
 
-protocol CommandRunning {
+protocol CommandRunning: Sendable {
     func run(executableURL: URL, arguments: [String]) throws -> CommandResult
 }
 
@@ -359,7 +359,7 @@ actor ResumableArtifactDownloader: ArtifactDownloading {
         _ bytes: URLSession.AsyncBytes,
         to url: URL,
         append: Bool,
-        progressUpdate: (@Sendable (Int64) -> Void)? = nil
+        progressUpdate: ((Int64) -> Void)? = nil
     ) async throws {
         let fileManager = FileManager.default
         if !fileManager.fileExists(atPath: url.path) {
@@ -996,7 +996,7 @@ final class OfficialDistributionCatalogService: DistributionCatalogService {
     ]
 }
 
-protocol QEMUFallbackHook {
+protocol QEMUFallbackHook: Sendable {
     func scaffoldInstall(for request: VMInstallRequest, assets: VMInstallAssets?) async throws -> UUID
 }
 
@@ -1152,7 +1152,7 @@ final class VMConsoleWindowManager {
         }
         session.embeddedContainer?.removeFromSuperview()
 
-        let virtualMachine = session.virtualMachine
+        nonisolated(unsafe) let virtualMachine = session.virtualMachine
         let vmQueue = session.virtualMachineQueue
         vmQueue.async {
             if virtualMachine.state == .stopped {
@@ -1262,10 +1262,11 @@ final class VMConsoleWindowManager {
         virtualMachineQueue: DispatchQueue
     ) async throws {
         traceVM("VMConsoleWindowManager.startVirtualMachineAsync scheduled vmID=\(vmID.uuidString)")
+        nonisolated(unsafe) let unsafeVirtualMachine = virtualMachine
         try await withCheckedThrowingContinuation { continuation in
             virtualMachineQueue.async {
                 traceVM("VMConsoleWindowManager.startVirtualMachineAsync queue-enter vmID=\(vmID.uuidString)")
-                virtualMachine.start { result in
+                unsafeVirtualMachine.start { result in
                     Task { @MainActor in
                         switch result {
                         case .success:
@@ -1308,12 +1309,12 @@ final class VMConsoleWindowManager {
 actor VMProvisioningPipelineService: VMProvisioningService {
     private var records: [UUID: VMProvisionRecord] = [:]
     private var qemuProcesses: [UUID: Process] = [:]
-    private let qemuHook: QEMUFallbackHook
-    private let registry: VMRegistryManaging
+    nonisolated private let qemuHook: QEMUFallbackHook
+    nonisolated private let registry: VMRegistryManaging
 
     init(
-        qemuHook: QEMUFallbackHook = ProcessQEMUFallbackHook(),
-        registry: VMRegistryManaging = PersistentVMRegistryStore()
+        qemuHook: QEMUFallbackHook,
+        registry: VMRegistryManaging
     ) {
         self.qemuHook = qemuHook
         self.registry = registry
@@ -1839,7 +1840,7 @@ actor VMProvisioningPipelineService: VMProvisioningService {
         }
 
         guard
-            let pidText = try? String(contentsOf: pidFileURL),
+            let pidText = try? String(contentsOf: pidFileURL, encoding: .utf8),
             let pid = Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines))
         else {
             traceVM("VMProvisioningPipelineService.stopQEMURuntime no process handle or pid vmID=\(vmID.uuidString)")

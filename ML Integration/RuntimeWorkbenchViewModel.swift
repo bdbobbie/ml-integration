@@ -68,27 +68,30 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private var activeInstallStartDate: Date?
 
     init(
-        hostService: HostProfileService = DefaultHostProfileService(),
-        catalogService: DistributionCatalogService = OfficialDistributionCatalogService(),
-        provisioningService: VMProvisioningService = VMProvisioningPipelineService(),
-        integrationService: IntegrationService = DefaultIntegrationService(),
-        healthService: HealthAndRepairService = DefaultHealthAndRepairService(),
-        uninstallService: UninstallCleanupService = DefaultUninstallCleanupService(),
-        escalationService: EscalationService = DefaultEscalationService(),
-        downloader: ArtifactDownloading = ResumableArtifactDownloader(),
-        registry: VMRegistryManaging = PersistentVMRegistryStore(),
-        observability: RuntimeObservabilityLogging = FileRuntimeObservabilityStore()
+        hostService: HostProfileService? = nil,
+        catalogService: DistributionCatalogService? = nil,
+        provisioningService: VMProvisioningService? = nil,
+        integrationService: IntegrationService? = nil,
+        healthService: HealthAndRepairService? = nil,
+        uninstallService: UninstallCleanupService? = nil,
+        escalationService: EscalationService? = nil,
+        downloader: ArtifactDownloading? = nil,
+        registry: VMRegistryManaging? = nil,
+        observability: RuntimeObservabilityLogging? = nil
     ) {
-        self.hostService = hostService
-        self.catalogService = catalogService
-        self.provisioningService = provisioningService
-        self.integrationService = integrationService
-        self.healthService = healthService
-        self.uninstallService = uninstallService
-        self.escalationService = escalationService
-        self.downloader = downloader
-        self.registry = registry
-        self.observability = observability
+        self.hostService = hostService ?? DefaultHostProfileService()
+        self.catalogService = catalogService ?? OfficialDistributionCatalogService()
+        self.provisioningService = provisioningService ?? VMProvisioningPipelineService(
+            qemuHook: ProcessQEMUFallbackHook(),
+            registry: PersistentVMRegistryStore()
+        )
+        self.integrationService = integrationService ?? DefaultIntegrationService()
+        self.healthService = healthService ?? DefaultHealthAndRepairService()
+        self.uninstallService = uninstallService ?? DefaultUninstallCleanupService()
+        self.escalationService = escalationService ?? DefaultEscalationService()
+        self.downloader = downloader ?? ResumableArtifactDownloader()
+        self.registry = registry ?? PersistentVMRegistryStore()
+        self.observability = observability ?? FileRuntimeObservabilityStore()
 
         traceVM("Build marker: VM-LAUNCH-DIAG-2026-04-23T00:00Z")
         Task {
@@ -567,7 +570,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 destinationURL: destinationURL,
                 maxRetriesPerURL: 3,
                 progressHandler: { [weak self] progress in
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
                         guard let self else { return }
                         self.downloadProgressFraction = progress.fractionCompleted
                         self.downloadStatusMessage = "Downloading \(artifact.distribution.rawValue): \(self.formatDownloadProgress(progress))"

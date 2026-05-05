@@ -19,7 +19,7 @@ enum RuntimeRunResult: String, Codable, CaseIterable {
     case failed
 }
 
-struct RuntimeRunEvent: Codable, Equatable, Identifiable {
+nonisolated struct RuntimeRunEvent: Codable, Equatable, Identifiable {
     let id: UUID
     let runID: UUID
     let vmID: UUID?
@@ -29,7 +29,7 @@ struct RuntimeRunEvent: Codable, Equatable, Identifiable {
     let timestampISO8601: String
 }
 
-struct RuntimeRunReport: Codable, Equatable {
+nonisolated struct RuntimeRunReport: Codable, Equatable {
     let runID: UUID
     let createdAtISO8601: String
     var updatedAtISO8601: String

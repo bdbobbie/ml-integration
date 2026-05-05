@@ -1,9 +1,9 @@
 import Foundation
 
 enum RuntimeEnvironment {
-    static let testRootEnvironmentVariable = "ML_INTEGRATION_TEST_ROOT"
+    nonisolated static let testRootEnvironmentVariable = "ML_INTEGRATION_TEST_ROOT"
 
-    static func mlIntegrationRootURL(
+    nonisolated static func mlIntegrationRootURL(
         fileManager: FileManager = .default,
         processInfo: ProcessInfo = .processInfo
     ) -> URL {

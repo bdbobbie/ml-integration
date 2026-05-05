@@ -41,7 +41,7 @@ actor DebugTraceLogger {
     }
 }
 
-func traceVM(_ message: String) {
+nonisolated func traceVM(_ message: String) {
     Task {
         await DebugTraceLogger.shared.append(message)
     }

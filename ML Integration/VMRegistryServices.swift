@@ -11,7 +11,7 @@ struct VMRegistryEntry: Codable, Equatable, Identifiable {
     let updatedAtISO8601: String
 }
 
-protocol VMRegistryManaging {
+protocol VMRegistryManaging: Sendable {
     func upsert(_ entry: VMRegistryEntry) async throws
     func entry(for id: UUID) async -> VMRegistryEntry?
     func allEntries() async -> [VMRegistryEntry]

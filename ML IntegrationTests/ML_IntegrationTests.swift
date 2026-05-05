@@ -2,6 +2,12 @@ import XCTest
 @testable import ML_Integration
 
 final class ML_IntegrationTests: XCTestCase {
+    private func makeTemporaryInstallerImage() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-test-installer-\(UUID().uuidString).iso")
+        try Data("mock-installer".utf8).write(to: url)
+        return url
+    }
 
     @MainActor
     func testReadinessGateIsNoGoWhenAnyCriteriaUnsatisfied() {
@@ -437,7 +443,10 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testAutoHealAfterScaffoldUpdatesHealthStatus() async {
+    func testAutoHealAfterScaffoldUpdatesHealthStatus() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
             catalogService: MockCatalogService(),
@@ -454,7 +463,7 @@ final class ML_IntegrationTests: XCTestCase {
             architecture: .appleSilicon,
             runtime: .appleVirtualization,
             vmName: "vm",
-            installerImagePath: "/tmp/mock.iso",
+            installerImagePath: installerURL.path,
             kernelImagePath: "",
             initialRamdiskPath: ""
         )
@@ -465,7 +474,10 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testVMRuntimeLifecycleStartStopRestartAfterScaffold() async {
+    func testVMRuntimeLifecycleStartStopRestartAfterScaffold() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
             catalogService: MockCatalogService(),
@@ -482,7 +494,7 @@ final class ML_IntegrationTests: XCTestCase {
             architecture: .appleSilicon,
             runtime: .appleVirtualization,
             vmName: "vm-runtime",
-            installerImagePath: "/tmp/mock.iso",
+            installerImagePath: installerURL.path,
             kernelImagePath: "",
             initialRamdiskPath: ""
         )
@@ -533,7 +545,10 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testCleanupVerificationUsesLastManagedVM() async {
+    func testCleanupVerificationUsesLastManagedVM() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
             catalogService: MockCatalogService(),
@@ -549,7 +564,7 @@ final class ML_IntegrationTests: XCTestCase {
             architecture: .appleSilicon,
             runtime: .appleVirtualization,
             vmName: "vm-cleanup",
-            installerImagePath: "/tmp/mock.iso",
+            installerImagePath: installerURL.path,
             kernelImagePath: "",
             initialRamdiskPath: ""
         )
@@ -914,6 +929,8 @@ final class ML_IntegrationTests: XCTestCase {
             }
             try? FileManager.default.removeItem(at: testRoot)
         }
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
 
         // Scaffold a VM to establish an active VM and a stopped runtime state persisted to disk.
         let viewModel = RuntimeWorkbenchViewModel(
@@ -932,7 +949,7 @@ final class ML_IntegrationTests: XCTestCase {
             architecture: .appleSilicon,
             runtime: .appleVirtualization,
             vmName: "vm-session",
-            installerImagePath: "/tmp/mock.iso",
+            installerImagePath: installerURL.path,
             kernelImagePath: "",
             initialRamdiskPath: ""
         )
@@ -976,6 +993,8 @@ final class ML_IntegrationTests: XCTestCase {
             }
             try? FileManager.default.removeItem(at: testRoot)
         }
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
 
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
@@ -993,7 +1012,7 @@ final class ML_IntegrationTests: XCTestCase {
             architecture: .appleSilicon,
             runtime: .appleVirtualization,
             vmName: "vm-session-ss",
-            installerImagePath: "/tmp/mock.iso",
+            installerImagePath: installerURL.path,
             kernelImagePath: "",
             initialRamdiskPath: ""
         )
@@ -1037,6 +1056,8 @@ final class ML_IntegrationTests: XCTestCase {
             }
             try? FileManager.default.removeItem(at: testRoot)
         }
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
 
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
@@ -1054,7 +1075,7 @@ final class ML_IntegrationTests: XCTestCase {
             architecture: .appleSilicon,
             runtime: .appleVirtualization,
             vmName: "vm-session-clear",
-            installerImagePath: "/tmp/mock.iso",
+            installerImagePath: installerURL.path,
             kernelImagePath: "",
             initialRamdiskPath: ""
         )
@@ -1096,6 +1117,8 @@ final class ML_IntegrationTests: XCTestCase {
             }
             try? FileManager.default.removeItem(at: testRoot)
         }
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
 
         // Scaffold and start VM to persist a running state with current process PID
         let vm = RuntimeWorkbenchViewModel(
@@ -1114,7 +1137,7 @@ final class ML_IntegrationTests: XCTestCase {
             architecture: .appleSilicon,
             runtime: .appleVirtualization,
             vmName: "vm-session-rebind",
-            installerImagePath: "/tmp/mock.iso",
+            installerImagePath: installerURL.path,
             kernelImagePath: "",
             initialRamdiskPath: ""
         )
@@ -1165,6 +1188,8 @@ final class ML_IntegrationTests: XCTestCase {
             }
             try? FileManager.default.removeItem(at: testRoot)
         }
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
 
         // Create a view model and scaffold to create the session file (stopped state)
         let vm = RuntimeWorkbenchViewModel(
@@ -1182,7 +1207,7 @@ final class ML_IntegrationTests: XCTestCase {
             architecture: .appleSilicon,
             runtime: .appleVirtualization,
             vmName: "vm-session-deadpid",
-            installerImagePath: "/tmp/mock.iso",
+            installerImagePath: installerURL.path,
             kernelImagePath: "",
             initialRamdiskPath: ""
         )
@@ -1423,7 +1448,32 @@ actor MockProvisioningService: VMProvisioningService {
 
     func installVM(using request: VMInstallRequest, assets: VMInstallAssets?) async throws -> UUID {
         try await validate(request, assets: assets)
-        return UUID()
+        guard let assets else {
+            throw RuntimeServiceError.missingAssets("Virtualization flow requires installer image path and VM asset paths.")
+        }
+
+        try FileManager.default.createDirectory(at: assets.vmDirectoryURL, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: assets.diskImageURL.path) {
+            FileManager.default.createFile(atPath: assets.diskImageURL.path, contents: Data())
+        }
+
+        let vmID = UUID()
+        let now = ISO8601DateFormatter().string(from: Date())
+        let registry = PersistentVMRegistryStore()
+        try await registry.upsert(
+            VMRegistryEntry(
+                id: vmID,
+                vmName: assets.vmName,
+                vmDirectoryPath: assets.vmDirectoryURL.path,
+                distribution: request.distribution,
+                architecture: request.architecture,
+                runtimeEngine: request.runtimeEngine,
+                createdAtISO8601: now,
+                updatedAtISO8601: now
+            )
+        )
+
+        return vmID
     }
 
     func startVM(id: UUID) async throws {
