@@ -956,6 +956,10 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(pendingSummary.contains("Planner: pending"))
         XCTAssertTrue(pendingSummary.contains("Phase sweep: pending"))
 
+        let mixedSummary = viewModel.environmentTestingGateSummary(plannerReady: true)
+        XCTAssertTrue(mixedSummary.contains("Planner: ready"))
+        XCTAssertTrue(mixedSummary.contains("Phase sweep: pending"))
+
         _ = await viewModel.runPhaseSweep()
         let goSummary = viewModel.environmentTestingGateSummary(plannerReady: true)
         XCTAssertTrue(goSummary.contains("Planner: ready"))
