@@ -293,6 +293,37 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testDeliveryActionItemsDefaultToPending() {
+        let planner = BlueprintPlanner()
+        XCTAssertFalse(planner.deliveryActionItems.isEmpty)
+        XCTAssertTrue(planner.deliveryActionItems.allSatisfy { $0.status == .pending })
+        XCTAssertTrue(planner.deliveryActionProgressSummary.contains("0/"))
+    }
+
+    @MainActor
+    func testDeliveryActionItemsSyncToInProgressFromGateSignals() {
+        let planner = BlueprintPlanner()
+        planner.syncDeliveryActionItems(
+            plannerReady: true,
+            phaseSweepReady: true,
+            phase2DisplayReady: true
+        )
+
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "linux-window-coherence" })?.status,
+            .inProgress
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "multi-display-runtime" })?.status,
+            .inProgress
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "device-passthrough" })?.status,
+            .inProgress
+        )
+    }
+
+    @MainActor
     func testPhaseStateReportExportPersistsArtifact() throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

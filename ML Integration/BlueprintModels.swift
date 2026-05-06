@@ -210,3 +210,18 @@ struct PhaseStateReport: Codable, Equatable, Identifiable {
     let preflightStatusMessage: String
     let preflightFindings: [String]
 }
+
+enum DeliveryActionStatus: String, CaseIterable, Identifiable, Codable {
+    case pending
+    case inProgress
+    case complete
+
+    var id: String { rawValue }
+}
+
+struct DeliveryActionItem: Identifiable, Equatable, Codable {
+    let id: String
+    let title: String
+    let acceptanceCriteria: String
+    var status: DeliveryActionStatus
+}

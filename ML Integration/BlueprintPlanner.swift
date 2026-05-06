@@ -14,6 +14,7 @@ final class BlueprintPlanner: ObservableObject {
     @Published private(set) var stages: [StageDefinition] = []
     @Published private(set) var readinessCriteria: [ReadinessCriterion] = []
     @Published private(set) var phaseMilestones: [PhaseMilestone] = []
+    @Published private(set) var deliveryActionItems: [DeliveryActionItem] = []
     @Published private(set) var preflightStatusMessage: String = ""
     @Published private(set) var preflightFindings: [String] = []
     @Published private(set) var lastPreflightEvidencePath: String = ""
@@ -140,6 +141,63 @@ final class BlueprintPlanner: ObservableObject {
                 status: .pending
             )
         ]
+
+        deliveryActionItems = [
+            DeliveryActionItem(
+                id: "linux-window-coherence",
+                title: "Linux app window coherence",
+                acceptanceCriteria: "Linux app windows behave as first-class macOS windows with stable focus, resize, and z-order behavior.",
+                status: .pending
+            ),
+            DeliveryActionItem(
+                id: "launcher-integration",
+                title: "Launcher integration end-to-end",
+                acceptanceCriteria: "Installed Linux apps can be discovered and launched via macOS-integrated launcher surfaces.",
+                status: .pending
+            ),
+            DeliveryActionItem(
+                id: "clipboard-folders",
+                title: "Clipboard and shared folders validation",
+                acceptanceCriteria: "Bidirectional clipboard and shared-folder flows pass deterministic integration checks.",
+                status: .pending
+            ),
+            DeliveryActionItem(
+                id: "multi-vm-concurrency",
+                title: "Multi-VM concurrent orchestration",
+                acceptanceCriteria: "Multiple VMs can run concurrently with explicit resource arbitration and lifecycle safety checks.",
+                status: .pending
+            ),
+            DeliveryActionItem(
+                id: "multi-display-runtime",
+                title: "Multi-display runtime implementation",
+                acceptanceCriteria: "v2 target display configuration is runnable and validated, not only planned/readiness-flagged.",
+                status: .pending
+            ),
+            DeliveryActionItem(
+                id: "device-passthrough",
+                title: "USB/audio/mic/camera passthrough hardening",
+                acceptanceCriteria: "Media and USB passthrough includes permission handling, failure recovery, and run-level verification.",
+                status: .pending
+            ),
+            DeliveryActionItem(
+                id: "linux-app-onboarding",
+                title: "Linux app onboarding UX",
+                acceptanceCriteria: "Users can install, launch, and manage Linux apps through guided in-app workflows.",
+                status: .pending
+            ),
+            DeliveryActionItem(
+                id: "ci-stability",
+                title: "CI/workflow stability",
+                acceptanceCriteria: "Repository CI workflow and required token scopes are stable and documented for repeatable pushes/runs.",
+                status: .pending
+            ),
+            DeliveryActionItem(
+                id: "e2e-runtime-tests",
+                title: "End-to-end runtime test expansion",
+                acceptanceCriteria: "Integration and UI test suites cover real runtime behaviors beyond gate/readiness state checks.",
+                status: .pending
+            )
+        ]
     }
 
     func setStageStatus(stageID: String, to newStatus: BlueprintStageStatus) -> (stage: StageDefinition, previous: BlueprintStageStatus)? {
@@ -187,6 +245,11 @@ final class BlueprintPlanner: ObservableObject {
     var phaseProgressSummary: String {
         let completed = phaseMilestones.filter { $0.status == .complete }.count
         return "\(completed)/\(phaseMilestones.count) phases complete"
+    }
+
+    var deliveryActionProgressSummary: String {
+        let completed = deliveryActionItems.filter { $0.status == .complete }.count
+        return "\(completed)/\(deliveryActionItems.count) delivery actions complete"
     }
 
     var isReadyForEnvironmentTesting: Bool {
@@ -337,6 +400,56 @@ final class BlueprintPlanner: ObservableObject {
                 phaseMilestones[phase2Index].status = .pending
             }
         }
+    }
+
+    func syncDeliveryActionItems(
+        plannerReady: Bool,
+        phaseSweepReady: Bool,
+        phase2DisplayReady: Bool
+    ) {
+        setDeliveryActionStatus(
+            id: "linux-window-coherence",
+            to: (plannerReady && phaseSweepReady) ? .inProgress : .pending
+        )
+        setDeliveryActionStatus(
+            id: "launcher-integration",
+            to: plannerReady ? .inProgress : .pending
+        )
+        setDeliveryActionStatus(
+            id: "clipboard-folders",
+            to: phaseSweepReady ? .inProgress : .pending
+        )
+        setDeliveryActionStatus(
+            id: "multi-vm-concurrency",
+            to: plannerReady ? .inProgress : .pending
+        )
+        setDeliveryActionStatus(
+            id: "multi-display-runtime",
+            to: phase2DisplayReady ? .inProgress : .pending
+        )
+        setDeliveryActionStatus(
+            id: "device-passthrough",
+            to: phaseSweepReady ? .inProgress : .pending
+        )
+        setDeliveryActionStatus(
+            id: "linux-app-onboarding",
+            to: plannerReady ? .inProgress : .pending
+        )
+        setDeliveryActionStatus(
+            id: "ci-stability",
+            to: .pending
+        )
+        setDeliveryActionStatus(
+            id: "e2e-runtime-tests",
+            to: plannerReady ? .inProgress : .pending
+        )
+    }
+
+    func setDeliveryActionStatus(id: String, to status: DeliveryActionStatus) {
+        guard let index = deliveryActionItems.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        deliveryActionItems[index].status = status
     }
 
     @discardableResult
