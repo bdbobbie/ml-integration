@@ -673,6 +673,12 @@ struct ContentView: View {
                     || !runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting()
             )
 
+            Text(runtimeWorkbench.phaseReadinessSummary(prefix: "Phase sweep gate"))
+                .font(.caption2)
+                .foregroundColor(
+                    runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting() ? .green : .orange
+                )
+
             Button("Export Phase State Report") {
                 _ = blueprintPlanner.exportPhaseStateReport()
             }
