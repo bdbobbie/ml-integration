@@ -262,6 +262,35 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testPhaseMilestonesDefaultToPending() {
+        let planner = BlueprintPlanner()
+        XCTAssertEqual(planner.phaseMilestones.count, 2)
+        XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-1" })?.status, .pending)
+        XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-2" })?.status, .pending)
+    }
+
+    @MainActor
+    func testPhaseMilestonesAdvanceWithReadinessSignals() {
+        let planner = BlueprintPlanner()
+
+        planner.syncPhaseMilestones(
+            coherenceReady: true,
+            deviceMediaReady: false,
+            displayV2Ready: false
+        )
+        XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-1" })?.status, .inProgress)
+        XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-2" })?.status, .pending)
+
+        planner.syncPhaseMilestones(
+            coherenceReady: true,
+            deviceMediaReady: true,
+            displayV2Ready: true
+        )
+        XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-1" })?.status, .complete)
+        XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-2" })?.status, .inProgress)
+    }
+
+    @MainActor
     func testChronicleBackfillIsAppliedOnce() throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

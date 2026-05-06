@@ -185,3 +185,18 @@ struct RuntimeSessionSnapshot: Codable, Equatable, Identifiable {
         self.lastUpdatedISO8601 = lastUpdatedISO8601
     }
 }
+
+enum RoadmapPhaseStatus: String, CaseIterable, Identifiable, Codable {
+    case pending
+    case inProgress
+    case complete
+
+    var id: String { rawValue }
+}
+
+struct PhaseMilestone: Identifiable, Equatable, Codable {
+    let id: String
+    let title: String
+    let summary: String
+    var status: RoadmapPhaseStatus
+}

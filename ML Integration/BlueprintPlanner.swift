@@ -13,6 +13,7 @@ final class BlueprintPlanner: ObservableObject {
     @Published private(set) var integrationModes: [IntegrationMode] = IntegrationMode.allCases
     @Published private(set) var stages: [StageDefinition] = []
     @Published private(set) var readinessCriteria: [ReadinessCriterion] = []
+    @Published private(set) var phaseMilestones: [PhaseMilestone] = []
     @Published private(set) var preflightStatusMessage: String = ""
     @Published private(set) var preflightFindings: [String] = []
     @Published private(set) var lastPreflightEvidencePath: String = ""
@@ -120,6 +121,21 @@ final class BlueprintPlanner: ObservableObject {
                 title: "No blocker-severity issues remain",
                 detail: "Open defects are triaged and blockers are resolved before test start.",
                 isSatisfied: false
+            )
+        ]
+
+        phaseMilestones = [
+            PhaseMilestone(
+                id: "phase-1",
+                title: "Phase 1 - Coherence Essentials",
+                summary: "Shared folders, clipboard sync, launcher integration, and baseline device/display readiness checks.",
+                status: .pending
+            ),
+            PhaseMilestone(
+                id: "phase-2",
+                title: "Phase 2 - Multi-Display Expansion",
+                summary: "Scale from v1 single display to planned multi-display target with readiness gates.",
+                status: .pending
             )
         ]
     }
@@ -284,6 +300,26 @@ final class BlueprintPlanner: ObservableObject {
         environmentTestingStarted = true
         environmentTestStartStatusMessage = "GO: environment testing has been enabled."
         return true
+    }
+
+    func syncPhaseMilestones(
+        coherenceReady: Bool,
+        deviceMediaReady: Bool,
+        displayV2Ready: Bool
+    ) {
+        if let phase1Index = phaseMilestones.firstIndex(where: { $0.id == "phase-1" }) {
+            if coherenceReady && deviceMediaReady {
+                phaseMilestones[phase1Index].status = .complete
+            } else if coherenceReady || deviceMediaReady {
+                phaseMilestones[phase1Index].status = .inProgress
+            } else {
+                phaseMilestones[phase1Index].status = .pending
+            }
+        }
+
+        if let phase2Index = phaseMilestones.firstIndex(where: { $0.id == "phase-2" }) {
+            phaseMilestones[phase2Index].status = displayV2Ready ? .inProgress : .pending
+        }
     }
 
     private func persistPreflightEvidence(

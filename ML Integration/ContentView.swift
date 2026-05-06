@@ -540,6 +540,20 @@ struct ContentView: View {
             }
         }
     }
+                                Text("Roadmap Milestones")
+                                    .font(.subheadline)
+                                    .padding(.top, 8)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ForEach(blueprintPlanner.phaseMilestones) { milestone in
+                                        HStack(alignment: .top, spacing: 8) {
+                                            Text(milestone.status == .complete ? "✓" : (milestone.status == .inProgress ? "•" : "○"))
+                                                .foregroundColor(milestone.status == .complete ? .green : .orange)
+                                            Text("\(milestone.title): \(milestone.status.rawValue)")
+                                                .font(.caption)
+                                        }
+                                    }
+                                }
                         }
                     }
                     .frame(maxWidth: 980)
@@ -1467,6 +1481,16 @@ struct ContentView: View {
                                 Task {
                                     await runtimeWorkbench.selectManagedVM(selectedInstalledVMID)
                                     await runtimeWorkbench.prepareCoherenceEssentials()
+                                    blueprintPlanner.syncPhaseMilestones(
+                                        coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
+                                            && runtimeWorkbench.coherenceClipboardReady
+                                            && runtimeWorkbench.coherenceLauncherReady,
+                                        deviceMediaReady: runtimeWorkbench.deviceAudioReady
+                                            && runtimeWorkbench.deviceMicReady
+                                            && runtimeWorkbench.deviceCameraReady
+                                            && runtimeWorkbench.deviceUSBReady,
+                                        displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
+                                    )
                                     presentInfo(runtimeWorkbench.integrationStatusMessage)
                                 }
                             }
@@ -1486,6 +1510,16 @@ struct ContentView: View {
                             Button("Assess Device/Media Readiness") {
                                 Task {
                                     await runtimeWorkbench.assessDeviceMediaReadiness()
+                                    blueprintPlanner.syncPhaseMilestones(
+                                        coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
+                                            && runtimeWorkbench.coherenceClipboardReady
+                                            && runtimeWorkbench.coherenceLauncherReady,
+                                        deviceMediaReady: runtimeWorkbench.deviceAudioReady
+                                            && runtimeWorkbench.deviceMicReady
+                                            && runtimeWorkbench.deviceCameraReady
+                                            && runtimeWorkbench.deviceUSBReady,
+                                        displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
+                                    )
                                     presentInfo(runtimeWorkbench.deviceMediaStatusSummary)
                                 }
                             }
@@ -1506,6 +1540,16 @@ struct ContentView: View {
                             Button("Assess Display Plan (v1/v2)") {
                                 Task {
                                     await runtimeWorkbench.assessDisplayPlanReadiness()
+                                    blueprintPlanner.syncPhaseMilestones(
+                                        coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
+                                            && runtimeWorkbench.coherenceClipboardReady
+                                            && runtimeWorkbench.coherenceLauncherReady,
+                                        deviceMediaReady: runtimeWorkbench.deviceAudioReady
+                                            && runtimeWorkbench.deviceMicReady
+                                            && runtimeWorkbench.deviceCameraReady
+                                            && runtimeWorkbench.deviceUSBReady,
+                                        displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
+                                    )
                                     presentInfo(runtimeWorkbench.displayPlanStatusSummary)
                                 }
                             }
