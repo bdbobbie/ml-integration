@@ -963,6 +963,40 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testEnvironmentTestingGateReadyRequiresPlannerAndPhaseSweep() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-gate-ready",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        XCTAssertFalse(viewModel.isEnvironmentTestingGateReady(plannerReady: false))
+        XCTAssertFalse(viewModel.isEnvironmentTestingGateReady(plannerReady: true))
+
+        _ = await viewModel.runPhaseSweep()
+        XCTAssertFalse(viewModel.isEnvironmentTestingGateReady(plannerReady: false))
+        XCTAssertTrue(viewModel.isEnvironmentTestingGateReady(plannerReady: true))
+    }
+
+    @MainActor
     func testAutoHealAfterScaffoldUpdatesHealthStatus() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }

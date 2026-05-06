@@ -669,8 +669,9 @@ struct ContentView: View {
             }
             .buttonStyle(RedTextWhiteOutlineButtonStyle())
             .disabled(
-                !blueprintPlanner.isReadyForEnvironmentTesting
-                    || !runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting()
+                !runtimeWorkbench.isEnvironmentTestingGateReady(
+                    plannerReady: blueprintPlanner.isReadyForEnvironmentTesting
+                )
             )
 
             Text(environmentTestingGateSummary)
@@ -695,8 +696,9 @@ struct ContentView: View {
     }
 
     private var environmentTestingGateReady: Bool {
-        blueprintPlanner.isReadyForEnvironmentTesting
-            && runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting()
+        runtimeWorkbench.isEnvironmentTestingGateReady(
+            plannerReady: blueprintPlanner.isReadyForEnvironmentTesting
+        )
     }
 
     private var environmentTestingGateSummary: String {

@@ -1347,6 +1347,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return "Environment testing gate | Planner: \(plannerStatus) | Phase sweep: \(phaseStatus)"
     }
 
+    func isEnvironmentTestingGateReady(plannerReady: Bool) -> Bool {
+        plannerReady && isPhaseSweepReadyForEnvironmentTesting()
+    }
+
     private func downloadsDirectory() throws -> URL {
         let directory = baseDirectory()
             .appendingPathComponent("downloads", isDirectory: true)
