@@ -20,6 +20,8 @@ final class BlueprintPlanner: ObservableObject {
     @Published private(set) var checklistAutoSyncStatusMessage: String = ""
     @Published private(set) var environmentTestStartStatusMessage: String = ""
     @Published private(set) var lastGoNoGoReportPath: String = ""
+    @Published private(set) var phaseStateExportStatusMessage: String = ""
+    @Published private(set) var lastPhaseStateReportPath: String = ""
     @Published private(set) var environmentTestingStarted: Bool = false
 
     init() {
@@ -322,6 +324,20 @@ final class BlueprintPlanner: ObservableObject {
         }
     }
 
+    @discardableResult
+    func exportPhaseStateReport() -> URL? {
+        do {
+            let url = try persistPhaseStateReport()
+            lastPhaseStateReportPath = url.path
+            phaseStateExportStatusMessage = "Phase state report exported: \(url.lastPathComponent)"
+            return url
+        } catch {
+            lastPhaseStateReportPath = ""
+            phaseStateExportStatusMessage = "Phase state export failed: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     private func persistPreflightEvidence(
         snapshot: ReadinessPreflightSnapshot,
         findings: [String]
@@ -369,6 +385,31 @@ final class BlueprintPlanner: ObservableObject {
             .appendingPathComponent("readiness", isDirectory: true)
             .appendingPathComponent("go-no-go", isDirectory: true)
             .appendingPathComponent("decision-\(timestamp)-\(report.id.uuidString).json", isDirectory: false)
+
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(report)
+        try data.write(to: fileURL, options: [.atomic])
+        return fileURL
+    }
+
+    private func persistPhaseStateReport() throws -> URL {
+        let report = PhaseStateReport(
+            id: UUID(),
+            timestampISO8601: ISO8601DateFormatter().string(from: Date()),
+            readinessSummary: readinessProgressSummary,
+            readinessCriteria: readinessCriteria,
+            phaseMilestones: phaseMilestones,
+            preflightStatusMessage: preflightStatusMessage,
+            preflightFindings: preflightFindings
+        )
+
+        let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let fileURL = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("readiness", isDirectory: true)
+            .appendingPathComponent("phase-state", isDirectory: true)
+            .appendingPathComponent("phase-state-\(timestamp)-\(report.id.uuidString).json", isDirectory: false)
 
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()

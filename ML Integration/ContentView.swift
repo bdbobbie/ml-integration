@@ -520,12 +520,23 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(!blueprintPlanner.isReadyForEnvironmentTesting)
+
+                                    Button("Export Phase State Report") {
+                                        _ = blueprintPlanner.exportPhaseStateReport()
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                 }
 
                                 if !blueprintPlanner.environmentTestStartStatusMessage.isEmpty {
                                     Text(blueprintPlanner.environmentTestStartStatusMessage)
                                         .font(.caption)
                                         .foregroundColor(blueprintPlanner.environmentTestingStarted ? .green : .orange)
+                                }
+
+                                if !blueprintPlanner.phaseStateExportStatusMessage.isEmpty {
+                                    Text(blueprintPlanner.phaseStateExportStatusMessage)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
                                 }
 
                                 VStack(alignment: .leading, spacing: 4) {

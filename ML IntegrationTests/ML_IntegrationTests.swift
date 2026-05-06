@@ -291,6 +291,62 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testPhaseStateReportExportPersistsArtifact() throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-phase-state-export-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let planner = BlueprintPlanner()
+        planner.syncPhaseMilestones(coherenceReady: true, deviceMediaReady: true, displayV2Ready: false)
+
+        let url = planner.exportPhaseStateReport()
+        XCTAssertNotNil(url)
+        XCTAssertFalse(planner.lastPhaseStateReportPath.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: planner.lastPhaseStateReportPath))
+        XCTAssertTrue(planner.phaseStateExportStatusMessage.contains("exported"))
+    }
+
+    @MainActor
+    func testPhaseStateReportExportContainsMilestonesAndReadiness() throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-phase-state-content-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let planner = BlueprintPlanner()
+        planner.syncPhaseMilestones(coherenceReady: true, deviceMediaReady: false, displayV2Ready: true)
+        _ = planner.exportPhaseStateReport()
+
+        let data = try Data(contentsOf: URL(fileURLWithPath: planner.lastPhaseStateReportPath))
+        let report = try JSONDecoder().decode(PhaseStateReport.self, from: data)
+
+        XCTAssertEqual(report.phaseMilestones.count, 2)
+        XCTAssertTrue(report.readinessSummary.contains("/10"))
+        XCTAssertEqual(report.phaseMilestones.first(where: { $0.id == "phase-2" })?.status, .inProgress)
+    }
+
+    @MainActor
     func testChronicleBackfillIsAppliedOnce() throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

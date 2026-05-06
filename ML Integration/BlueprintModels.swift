@@ -200,3 +200,13 @@ struct PhaseMilestone: Identifiable, Equatable, Codable {
     let summary: String
     var status: RoadmapPhaseStatus
 }
+
+struct PhaseStateReport: Codable, Equatable, Identifiable {
+    let id: UUID
+    let timestampISO8601: String
+    let readinessSummary: String
+    let readinessCriteria: [ReadinessCriterion]
+    let phaseMilestones: [PhaseMilestone]
+    let preflightStatusMessage: String
+    let preflightFindings: [String]
+}
