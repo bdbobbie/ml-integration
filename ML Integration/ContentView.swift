@@ -700,9 +700,9 @@ struct ContentView: View {
     }
 
     private var environmentTestingGateSummary: String {
-        let plannerStatus = blueprintPlanner.isReadyForEnvironmentTesting ? "ready" : "pending"
-        let phaseStatus = runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting() ? "ready" : "pending"
-        return "Environment testing gate | Planner: \(plannerStatus) | Phase sweep: \(phaseStatus)"
+        runtimeWorkbench.environmentTestingGateSummary(
+            plannerReady: blueprintPlanner.isReadyForEnvironmentTesting
+        )
     }
 
     private let supportGitHubOwner = "bdbobbie"
