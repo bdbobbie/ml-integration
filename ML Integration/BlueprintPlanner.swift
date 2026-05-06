@@ -184,6 +184,11 @@ final class BlueprintPlanner: ObservableObject {
         return "\(satisfied)/\(readinessCriteria.count) criteria satisfied"
     }
 
+    var phaseProgressSummary: String {
+        let completed = phaseMilestones.filter { $0.status == .complete }.count
+        return "\(completed)/\(phaseMilestones.count) phases complete"
+    }
+
     var isReadyForEnvironmentTesting: Bool {
         !readinessCriteria.isEmpty && readinessCriteria.allSatisfy(\.isSatisfied)
     }
@@ -309,18 +314,28 @@ final class BlueprintPlanner: ObservableObject {
         deviceMediaReady: Bool,
         displayV2Ready: Bool
     ) {
+        var phase1Status: RoadmapPhaseStatus = .pending
         if let phase1Index = phaseMilestones.firstIndex(where: { $0.id == "phase-1" }) {
             if coherenceReady && deviceMediaReady {
                 phaseMilestones[phase1Index].status = .complete
+                phase1Status = .complete
             } else if coherenceReady || deviceMediaReady {
                 phaseMilestones[phase1Index].status = .inProgress
+                phase1Status = .inProgress
             } else {
                 phaseMilestones[phase1Index].status = .pending
+                phase1Status = .pending
             }
         }
 
         if let phase2Index = phaseMilestones.firstIndex(where: { $0.id == "phase-2" }) {
-            phaseMilestones[phase2Index].status = displayV2Ready ? .inProgress : .pending
+            if displayV2Ready && phase1Status == .complete {
+                phaseMilestones[phase2Index].status = .complete
+            } else if displayV2Ready || phase1Status == .inProgress {
+                phaseMilestones[phase2Index].status = .inProgress
+            } else {
+                phaseMilestones[phase2Index].status = .pending
+            }
         }
     }
 

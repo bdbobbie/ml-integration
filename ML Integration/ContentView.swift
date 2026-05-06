@@ -488,6 +488,10 @@ struct ContentView: View {
                                     .font(.subheadline)
                                     .foregroundColor(blueprintPlanner.isReadyForEnvironmentTesting ? .green : .orange)
 
+                                Text(blueprintPlanner.phaseProgressSummary)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
                                 if !blueprintPlanner.preflightStatusMessage.isEmpty {
                                     Text(blueprintPlanner.preflightStatusMessage)
                                         .font(.caption)

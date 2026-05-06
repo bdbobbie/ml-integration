@@ -267,6 +267,7 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(planner.phaseMilestones.count, 2)
         XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-1" })?.status, .pending)
         XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-2" })?.status, .pending)
+        XCTAssertEqual(planner.phaseProgressSummary, "0/2 phases complete")
     }
 
     @MainActor
@@ -279,7 +280,7 @@ final class ML_IntegrationTests: XCTestCase {
             displayV2Ready: false
         )
         XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-1" })?.status, .inProgress)
-        XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-2" })?.status, .pending)
+        XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-2" })?.status, .inProgress)
 
         planner.syncPhaseMilestones(
             coherenceReady: true,
@@ -287,7 +288,8 @@ final class ML_IntegrationTests: XCTestCase {
             displayV2Ready: true
         )
         XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-1" })?.status, .complete)
-        XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-2" })?.status, .inProgress)
+        XCTAssertEqual(planner.phaseMilestones.first(where: { $0.id == "phase-2" })?.status, .complete)
+        XCTAssertEqual(planner.phaseProgressSummary, "2/2 phases complete")
     }
 
     @MainActor
