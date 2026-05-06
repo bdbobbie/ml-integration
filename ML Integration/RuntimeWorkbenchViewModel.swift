@@ -1336,6 +1336,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             "Display v2: \(readiness.displayV2Ready ? "ready" : "pending")"
     }
 
+    func isPhaseSweepReadyForEnvironmentTesting() -> Bool {
+        let readiness = currentPhaseReadiness()
+        return readiness.coherenceReady && readiness.deviceMediaReady && readiness.displayV2Ready
+    }
+
     private func downloadsDirectory() throws -> URL {
         let directory = baseDirectory()
             .appendingPathComponent("downloads", isDirectory: true)
