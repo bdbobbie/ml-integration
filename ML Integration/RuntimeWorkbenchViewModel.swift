@@ -1192,6 +1192,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             return
         }
 
+        await logRunEvent(stage: .coherenceEssentials, result: .inProgress, vmID: vmID, message: "Preparing coherence essentials.")
         integrationStatusMessage = "Preparing coherence essentials for VM \(vmID.uuidString)..."
         coherenceSharedFoldersReady = false
         coherenceClipboardReady = false
@@ -1206,6 +1207,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         } catch {
             integrationStatusMessage = "Coherence setup failed at shared resources: \(error.localizedDescription)"
             updateCoherenceStatusSummary()
+            await logRunEvent(stage: .coherenceEssentials, result: .failed, vmID: vmID, message: integrationStatusMessage)
             return
         }
 
@@ -1214,9 +1216,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             coherenceLauncherReady = true
             integrationStatusMessage = "Coherence essentials ready for VM \(vmID.uuidString)."
             updateCoherenceStatusSummary()
+            await logRunEvent(stage: .coherenceEssentials, result: .success, vmID: vmID, message: integrationStatusMessage)
         } catch {
             integrationStatusMessage = "Coherence setup failed at launcher integration: \(error.localizedDescription)"
             updateCoherenceStatusSummary()
+            await logRunEvent(stage: .coherenceEssentials, result: .failed, vmID: vmID, message: integrationStatusMessage)
         }
     }
 
@@ -1243,10 +1247,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 deviceCameraReady = false
                 deviceUSBReady = false
                 deviceMediaStatusSummary = "Device/media readiness failed: host profile unavailable."
+                await logRunEvent(stage: .deviceMediaReadiness, result: .failed, vmID: activeVMID, message: deviceMediaStatusSummary)
                 return
             }
         }
 
+        await logRunEvent(stage: .deviceMediaReadiness, result: .inProgress, vmID: activeVMID, message: "Assessing device/media readiness.")
         let baselineReady = VZVirtualMachine.isSupported && profile.cpuCores >= 4 && profile.memoryGB >= 8
         deviceAudioReady = baselineReady
         deviceMicReady = baselineReady
@@ -1260,6 +1266,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             deviceUSBReady ? "USB: ready" : "USB: pending"
         ]
         deviceMediaStatusSummary = checks.joined(separator: " | ")
+        await logRunEvent(
+            stage: .deviceMediaReadiness,
+            result: baselineReady ? .success : .failed,
+            vmID: activeVMID,
+            message: deviceMediaStatusSummary
+        )
     }
 
     func assessDisplayPlanReadiness() async {
@@ -1273,15 +1285,23 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             } catch {
                 v2MultiDisplayPlanReady = false
                 displayPlanStatusSummary = "Display plan assessment failed: host profile unavailable."
+                await logRunEvent(stage: .displayPlanReadiness, result: .failed, vmID: activeVMID, message: displayPlanStatusSummary)
                 return
             }
         }
 
+        await logRunEvent(stage: .displayPlanReadiness, result: .inProgress, vmID: activeVMID, message: "Assessing v1/v2 display plan readiness.")
         let canScaleBeyondV1 = profile.cpuCores >= 8 && profile.memoryGB >= 16 && VZVirtualMachine.isSupported
         v2MultiDisplayPlanReady = canScaleBeyondV1
         displayPlanStatusSummary =
             "v1 locked to \(v1DisplayCountLocked) display. " +
             "v2 target \(v2DisplayTargetCount) displays: \(canScaleBeyondV1 ? "ready" : "pending")"
+        await logRunEvent(
+            stage: .displayPlanReadiness,
+            result: canScaleBeyondV1 ? .success : .failed,
+            vmID: activeVMID,
+            message: displayPlanStatusSummary
+        )
     }
 
     private func downloadsDirectory() throws -> URL {

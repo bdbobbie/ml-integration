@@ -11,6 +11,9 @@ enum RuntimeRunStage: String, Codable, CaseIterable {
     case cleanup
     case escalation
     case vmRuntimeControl
+    case coherenceEssentials
+    case deviceMediaReadiness
+    case displayPlanReadiness
 }
 
 enum RuntimeRunResult: String, Codable, CaseIterable {

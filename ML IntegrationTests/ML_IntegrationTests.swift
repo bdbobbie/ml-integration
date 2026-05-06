@@ -663,6 +663,44 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testObservabilityCapturesCoherenceAndReadinessStages() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let observability = MockObservabilityStore()
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            observability: observability
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-observability",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        await viewModel.prepareCoherenceEssentials()
+        await viewModel.assessDeviceMediaReadiness()
+        await viewModel.assessDisplayPlanReadiness()
+
+        let stages = await observability.events.map(\.stage)
+        XCTAssertTrue(stages.contains(.coherenceEssentials))
+        XCTAssertTrue(stages.contains(.deviceMediaReadiness))
+        XCTAssertTrue(stages.contains(.displayPlanReadiness))
+    }
+
+    @MainActor
     func testAutoHealAfterScaffoldUpdatesHealthStatus() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }
@@ -1563,6 +1601,34 @@ struct MockHostService: HostProfileService {
 struct MockWeakHostService: HostProfileService {
     func detectHostProfile() async throws -> HostProfile {
         HostProfile(architecture: .intel, cpuCores: 2, memoryGB: 4, macOSVersion: "mock-weak")
+    }
+}
+
+actor MockObservabilityStore: RuntimeObservabilityLogging {
+    private(set) var events: [RuntimeRunEvent] = []
+    private let runID = UUID()
+
+    func beginRun(vmID: UUID?) async throws -> UUID {
+        _ = vmID
+        return runID
+    }
+
+    func appendEvent(runID: UUID, vmID: UUID?, stage: RuntimeRunStage, result: RuntimeRunResult, message: String) async throws {
+        events.append(
+            RuntimeRunEvent(
+                id: UUID(),
+                runID: runID,
+                vmID: vmID,
+                stage: stage,
+                result: result,
+                message: message,
+                timestampISO8601: ISO8601DateFormatter().string(from: Date())
+            )
+        )
+    }
+
+    func exportReport(runID: UUID) async throws -> URL {
+        URL(fileURLWithPath: "/tmp/\(runID.uuidString).json")
     }
 }
 
