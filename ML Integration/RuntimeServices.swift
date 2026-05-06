@@ -1070,7 +1070,7 @@ private struct VMProvisionRecord {
 }
 
 @MainActor
-final class VMConsoleWindowManager {
+final class VMConsoleWindowManager: NSObject {
     static let shared = VMConsoleWindowManager()
 
     private struct Session {
@@ -1181,7 +1181,7 @@ final class VMConsoleWindowManager {
             session.window = makeConsoleWindow(vmID: vmID, session: session)
             sessions[vmID] = session
         } else if let existingWindow = session.window {
-            attachConsoleView(session.consoleView, to: existingWindow)
+            attachConsoleView(session.consoleView, to: existingWindow, vmID: vmID)
         }
         guard let window = session.window else { return false }
         window.deminiaturize(nil)
@@ -1238,7 +1238,7 @@ final class VMConsoleWindowManager {
             defer: false
         )
         window.title = "VM Console - \(vmID.uuidString.prefix(8))"
-        attachConsoleView(session.consoleView, to: window)
+        attachConsoleView(session.consoleView, to: window, vmID: vmID)
         window.isReleasedWhenClosed = false
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.center()
@@ -1246,14 +1246,40 @@ final class VMConsoleWindowManager {
         return window
     }
 
-    private func attachConsoleView(_ consoleView: VZVirtualMachineView, to window: NSWindow) {
+    private func attachConsoleView(_ consoleView: VZVirtualMachineView, to window: NSWindow, vmID: UUID) {
         let hostView = NSView(frame: NSRect(x: 0, y: 0, width: 1280, height: 800))
         hostView.autoresizingMask = [.width, .height]
-        window.contentView = hostView
+
+        let headerView = NSView(frame: NSRect(x: 0, y: hostView.bounds.height - 44, width: hostView.bounds.width, height: 44))
+        headerView.autoresizingMask = [.width, .minYMargin]
+
+        let closeButton = NSButton(title: "Close", target: self, action: #selector(closeButtonPressed(_:)))
+        closeButton.bezelStyle = .rounded
+        closeButton.frame = NSRect(x: hostView.bounds.width - 88, y: 8, width: 76, height: 28)
+        closeButton.autoresizingMask = [.minXMargin, .minYMargin]
+        closeButton.identifier = NSUserInterfaceItemIdentifier(vmID.uuidString)
+        headerView.addSubview(closeButton)
+
+        let consoleFrame = NSRect(x: 0, y: 0, width: hostView.bounds.width, height: hostView.bounds.height - headerView.frame.height)
         consoleView.removeFromSuperviewWithoutNeedingDisplay()
-        consoleView.frame = hostView.bounds
+        consoleView.frame = consoleFrame
         consoleView.autoresizingMask = [.width, .height]
         hostView.addSubview(consoleView)
+        hostView.addSubview(headerView)
+        window.contentView = hostView
+    }
+
+    @objc
+    private func closeButtonPressed(_ sender: NSButton) {
+        guard
+            let rawID = sender.identifier?.rawValue,
+            let vmID = UUID(uuidString: rawID)
+        else {
+            return
+        }
+        Task { @MainActor in
+            try? await stopConsole(vmID: vmID)
+        }
     }
 
     private func startVirtualMachineAsync(
@@ -1324,6 +1350,7 @@ actor VMProvisioningPipelineService: VMProvisioningService {
         guard request.cpuCores > 0 else { throw RuntimeServiceError.invalidVMRequest("CPU cores must be greater than 0.") }
         guard request.memoryGB >= 2 else { throw RuntimeServiceError.invalidVMRequest("Memory must be at least 2 GB.") }
         guard request.diskGB >= 20 else { throw RuntimeServiceError.invalidVMRequest("Disk must be at least 20 GB.") }
+        try validateSupportedDistributionPolicy(request)
         try validateInstallerMediaPolicy(request: request, assets: assets)
 
         switch request.runtimeEngine {
@@ -1349,6 +1376,7 @@ actor VMProvisioningPipelineService: VMProvisioningService {
         guard request.cpuCores > 0 else { throw RuntimeServiceError.invalidVMRequest("CPU cores must be greater than 0.") }
         guard request.memoryGB >= 2 else { throw RuntimeServiceError.invalidVMRequest("Memory must be at least 2 GB.") }
         guard request.diskGB >= 20 else { throw RuntimeServiceError.invalidVMRequest("Disk must be at least 20 GB.") }
+        try validateSupportedDistributionPolicy(request)
         try validateInstallerMediaPolicy(request: request, assets: assets)
 
         let vmID: UUID
@@ -1420,6 +1448,23 @@ actor VMProvisioningPipelineService: VMProvisioningService {
         }
     }
 
+    private func validateSupportedDistributionPolicy(_ request: VMInstallRequest) throws {
+        if request.runtimeEngine == .appleVirtualization || request.runtimeEngine == .qemuFallback {
+            let isSupported: Bool
+            switch request.distribution {
+            case .ubuntu, .fedora, .debian:
+                isSupported = true
+            default:
+                isSupported = false
+            }
+            guard isSupported else {
+                throw RuntimeServiceError.invalidVMRequest(
+                    "This build supports in-app Linux guests for Ubuntu, Fedora, and Debian only."
+                )
+            }
+        }
+    }
+
     private func validateRuntimeLaunchPolicy(_ request: VMInstallRequest) throws {
         if request.distribution == .windows11,
            (request.runtimeEngine == .appleVirtualization || request.runtimeEngine == .windowsDedicated) {
@@ -1456,7 +1501,13 @@ actor VMProvisioningPipelineService: VMProvisioningService {
             records[id] = record
             traceVM("VMProvisioningPipelineService.startVM migrated runtime to windows dedicated id=\(id.uuidString)")
         }
+        try validateSupportedDistributionPolicy(record.request)
         try validateRuntimeLaunchPolicy(record.request)
+        if let runningRecord = records.first(where: { $0.key != id && $0.value.isRunning })?.value {
+            throw RuntimeServiceError.invalidVMRequest(
+                "Only one VM can run at a time in this release. Stop '\(runningRecord.assets?.vmName ?? runningRecord.id.uuidString)' first."
+            )
+        }
 
         switch record.request.runtimeEngine {
         case .appleVirtualization, .windowsDedicated:

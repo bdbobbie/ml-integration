@@ -409,6 +409,36 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testScaffoldInstallRejectsUnsupportedInAppDistribution() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .popOS,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-unsupported",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        XCTAssertEqual(viewModel.installLifecycleState, .failed)
+        XCTAssertTrue(viewModel.vmStatusMessage.contains("Ubuntu, Fedora, and Debian"))
+    }
+
+    @MainActor
     func testIntegrationFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
@@ -509,6 +539,60 @@ final class ML_IntegrationTests: XCTestCase {
         await viewModel.restartActiveVM()
         XCTAssertEqual(viewModel.vmRuntimeState, .running)
         XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("restart"))
+    }
+
+    @MainActor
+    func testOnlyOneVMCanRunAtATimeAcrossSessions() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let sharedProvisioning = MockProvisioningService()
+        let first = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: sharedProvisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        let second = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: sharedProvisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await first.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-one",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        await second.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-two",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        await first.startActiveVM()
+        XCTAssertEqual(first.vmRuntimeState, .running)
+
+        await second.startActiveVM()
+        XCTAssertEqual(second.vmRuntimeState, .failed)
+        XCTAssertTrue(second.vmRuntimeStatusMessage.contains("Only one VM can run at a time"))
     }
 
     @MainActor
@@ -1439,8 +1523,23 @@ final class InMemoryTokenStore: GitHubTokenSecureStoring {
 }
 
 actor MockProvisioningService: VMProvisioningService {
+    private var statesByID: [UUID: VMRuntimeState] = [:]
+
     func validate(_ request: VMInstallRequest, assets: VMInstallAssets?) async throws {
-        _ = request
+        if request.runtimeEngine == .appleVirtualization || request.runtimeEngine == .qemuFallback {
+            let isSupported: Bool
+            switch request.distribution {
+            case .ubuntu, .fedora, .debian:
+                isSupported = true
+            default:
+                isSupported = false
+            }
+            guard isSupported else {
+                throw RuntimeServiceError.invalidVMRequest(
+                    "This build supports in-app Linux guests for Ubuntu, Fedora, and Debian only."
+                )
+            }
+        }
         guard assets?.installerImageURL != nil else {
             throw RuntimeServiceError.missingAssets("Provide installer image path or download an ISO from the catalog first.")
         }
@@ -1472,15 +1571,26 @@ actor MockProvisioningService: VMProvisioningService {
                 updatedAtISO8601: now
             )
         )
-
+        statesByID[vmID] = .stopped
         return vmID
     }
 
     func startVM(id: UUID) async throws {
-        _ = id
+        if statesByID[id] == nil {
+            throw RuntimeServiceError.vmNotFound
+        }
+        if statesByID.contains(where: { $0.key != id && $0.value == .running }) {
+            throw RuntimeServiceError.invalidVMRequest(
+                "Only one VM can run at a time in this release."
+            )
+        }
+        statesByID[id] = .running
     }
 
     func stopVM(id: UUID) async throws {
-        _ = id
+        if statesByID[id] == nil {
+            throw RuntimeServiceError.vmNotFound
+        }
+        statesByID[id] = .stopped
     }
 }
