@@ -673,11 +673,9 @@ struct ContentView: View {
                     || !runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting()
             )
 
-            Text(runtimeWorkbench.phaseReadinessSummary(prefix: "Phase sweep gate"))
+            Text(environmentTestingGateSummary)
                 .font(.caption2)
-                .foregroundColor(
-                    runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting() ? .green : .orange
-                )
+                .foregroundColor(environmentTestingGateReady ? .green : .orange)
 
             Button("Export Phase State Report") {
                 _ = blueprintPlanner.exportPhaseStateReport()
@@ -694,6 +692,17 @@ struct ContentView: View {
             deviceMediaReady: readiness.deviceMediaReady,
             displayV2Ready: readiness.displayV2Ready
         )
+    }
+
+    private var environmentTestingGateReady: Bool {
+        blueprintPlanner.isReadyForEnvironmentTesting
+            && runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting()
+    }
+
+    private var environmentTestingGateSummary: String {
+        let plannerStatus = blueprintPlanner.isReadyForEnvironmentTesting ? "ready" : "pending"
+        let phaseStatus = runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting() ? "ready" : "pending"
+        return "Environment testing gate | Planner: \(plannerStatus) | Phase sweep: \(phaseStatus)"
     }
 
     private let supportGitHubOwner = "bdbobbie"
