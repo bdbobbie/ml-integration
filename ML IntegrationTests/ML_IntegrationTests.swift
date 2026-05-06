@@ -893,6 +893,40 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testPhaseReadinessSummaryShowsPendingBeforeSweep() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-pending",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        let summary = viewModel.phaseReadinessSummary(prefix: "Gate")
+        XCTAssertTrue(summary.contains("Gate"))
+        XCTAssertTrue(summary.contains("Coherence: pending"))
+        XCTAssertTrue(summary.contains("Device/Media: pending"))
+        XCTAssertTrue(summary.contains("Display v2: pending"))
+        XCTAssertFalse(viewModel.isPhaseSweepReadyForEnvironmentTesting())
+    }
+
+    @MainActor
     func testAutoHealAfterScaffoldUpdatesHealthStatus() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }
