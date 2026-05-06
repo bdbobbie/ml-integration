@@ -1315,12 +1315,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         await assessDeviceMediaReadiness()
         await assessDisplayPlanReadiness()
 
-        let readiness = currentPhaseReadiness()
-
-        let summary =
-            "Sweep complete | Coherence: \(readiness.coherenceReady ? "ready" : "pending") | " +
-            "Device/Media: \(readiness.deviceMediaReady ? "ready" : "pending") | " +
-            "Display v2: \(readiness.displayV2Ready ? "ready" : "pending")"
+        let summary = phaseReadinessSummary(prefix: "Sweep complete")
         integrationStatusMessage = summary
         return summary
     }
@@ -1331,6 +1326,14 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             deviceMediaReady: deviceAudioReady && deviceMicReady && deviceCameraReady && deviceUSBReady,
             displayV2Ready: v2MultiDisplayPlanReady
         )
+    }
+
+    func phaseReadinessSummary(prefix: String = "Phase readiness") -> String {
+        let readiness = currentPhaseReadiness()
+        return
+            "\(prefix) | Coherence: \(readiness.coherenceReady ? "ready" : "pending") | " +
+            "Device/Media: \(readiness.deviceMediaReady ? "ready" : "pending") | " +
+            "Display v2: \(readiness.displayV2Ready ? "ready" : "pending")"
     }
 
     private func downloadsDirectory() throws -> URL {
