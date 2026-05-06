@@ -679,15 +679,11 @@ struct ContentView: View {
 
     @MainActor
     private func syncPhaseMilestonesFromRuntimeReadiness() {
+        let readiness = runtimeWorkbench.currentPhaseReadiness()
         blueprintPlanner.syncPhaseMilestones(
-            coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
-                && runtimeWorkbench.coherenceClipboardReady
-                && runtimeWorkbench.coherenceLauncherReady,
-            deviceMediaReady: runtimeWorkbench.deviceAudioReady
-                && runtimeWorkbench.deviceMicReady
-                && runtimeWorkbench.deviceCameraReady
-                && runtimeWorkbench.deviceUSBReady,
-            displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
+            coherenceReady: readiness.coherenceReady,
+            deviceMediaReady: readiness.deviceMediaReady,
+            displayV2Ready: readiness.displayV2Ready
         )
     }
 
