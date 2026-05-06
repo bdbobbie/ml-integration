@@ -498,48 +498,7 @@ struct ContentView: View {
                                         .foregroundColor(.secondary)
                                 }
 
-                                HStack(spacing: 8) {
-                                    Button("Run Live Preflight") {
-                                        Task {
-                                            await runtimeWorkbench.detectHost()
-                                            await runtimeWorkbench.refreshCatalog(for: selectedArchitecture, force: true)
-
-                                            let snapshot = runtimeWorkbench.makePreflightSnapshot()
-                                            blueprintPlanner.applyPreflightScan(snapshot)
-                                            blueprintPlanner.autoSyncChecklist(
-                                                with: ReadinessChecklistSignals(
-                                                    snapshot: snapshot,
-                                                    preflightEvidenceExists: !blueprintPlanner.lastPreflightEvidencePath.isEmpty,
-                                                    securityFlowReady: inferredSecurityFlowReady,
-                                                    buildPassed: nil,
-                                                    testsPassed: nil
-                                                )
-                                            )
-                                            blueprintPlanner.syncPhaseMilestones(
-                                                coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
-                                                    && runtimeWorkbench.coherenceClipboardReady
-                                                    && runtimeWorkbench.coherenceLauncherReady,
-                                                deviceMediaReady: runtimeWorkbench.deviceAudioReady
-                                                    && runtimeWorkbench.deviceMicReady
-                                                    && runtimeWorkbench.deviceCameraReady
-                                                    && runtimeWorkbench.deviceUSBReady,
-                                                displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
-                                            )
-                                        }
-                                    }
-                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
-
-                                    Button("Start Environment Testing") {
-                                        _ = blueprintPlanner.startEnvironmentTestingIfReady()
-                                    }
-                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
-                                    .disabled(!blueprintPlanner.isReadyForEnvironmentTesting)
-
-                                    Button("Export Phase State Report") {
-                                        _ = blueprintPlanner.exportPhaseStateReport()
-                                    }
-                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
-                                }
+                                livePreflightActionButtons
 
                                 if !blueprintPlanner.environmentTestStartStatusMessage.isEmpty {
                                     Text(blueprintPlanner.environmentTestStartStatusMessage)
@@ -671,6 +630,69 @@ struct ContentView: View {
             .sheet(item: $selectedSourceDetailsArtifact) { artifact in
                 sourceDetailsSheet(artifact)
             }
+    }
+
+    private var livePreflightActionButtons: some View {
+        HStack(spacing: 8) {
+            Button("Run Phase Sweep") {
+                Task {
+                    let summary = await runtimeWorkbench.runPhaseSweep()
+                    blueprintPlanner.syncPhaseMilestones(
+                        coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
+                            && runtimeWorkbench.coherenceClipboardReady
+                            && runtimeWorkbench.coherenceLauncherReady,
+                        deviceMediaReady: runtimeWorkbench.deviceAudioReady
+                            && runtimeWorkbench.deviceMicReady
+                            && runtimeWorkbench.deviceCameraReady
+                            && runtimeWorkbench.deviceUSBReady,
+                        displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
+                    )
+                    presentInfo(summary)
+                }
+            }
+            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+
+            Button("Run Live Preflight") {
+                Task {
+                    await runtimeWorkbench.detectHost()
+                    await runtimeWorkbench.refreshCatalog(for: selectedArchitecture, force: true)
+
+                    let snapshot = runtimeWorkbench.makePreflightSnapshot()
+                    blueprintPlanner.applyPreflightScan(snapshot)
+                    blueprintPlanner.autoSyncChecklist(
+                        with: ReadinessChecklistSignals(
+                            snapshot: snapshot,
+                            preflightEvidenceExists: !blueprintPlanner.lastPreflightEvidencePath.isEmpty,
+                            securityFlowReady: inferredSecurityFlowReady,
+                            buildPassed: nil,
+                            testsPassed: nil
+                        )
+                    )
+                    blueprintPlanner.syncPhaseMilestones(
+                        coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
+                            && runtimeWorkbench.coherenceClipboardReady
+                            && runtimeWorkbench.coherenceLauncherReady,
+                        deviceMediaReady: runtimeWorkbench.deviceAudioReady
+                            && runtimeWorkbench.deviceMicReady
+                            && runtimeWorkbench.deviceCameraReady
+                            && runtimeWorkbench.deviceUSBReady,
+                        displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
+                    )
+                }
+            }
+            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+
+            Button("Start Environment Testing") {
+                _ = blueprintPlanner.startEnvironmentTestingIfReady()
+            }
+            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+            .disabled(!blueprintPlanner.isReadyForEnvironmentTesting)
+
+            Button("Export Phase State Report") {
+                _ = blueprintPlanner.exportPhaseStateReport()
+            }
+            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+        }
     }
 
     private let supportGitHubOwner = "bdbobbie"
