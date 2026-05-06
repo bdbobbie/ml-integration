@@ -1304,6 +1304,23 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         )
     }
 
+    func runPhaseSweep() async -> String {
+        await prepareCoherenceEssentials()
+        await assessDeviceMediaReadiness()
+        await assessDisplayPlanReadiness()
+
+        let coherenceReady = coherenceSharedFoldersReady && coherenceClipboardReady && coherenceLauncherReady
+        let deviceReady = deviceAudioReady && deviceMicReady && deviceCameraReady && deviceUSBReady
+        let displayReady = v2MultiDisplayPlanReady
+
+        let summary =
+            "Sweep complete | Coherence: \(coherenceReady ? "ready" : "pending") | " +
+            "Device/Media: \(deviceReady ? "ready" : "pending") | " +
+            "Display v2: \(displayReady ? "ready" : "pending")"
+        integrationStatusMessage = summary
+        return summary
+    }
+
     private func downloadsDirectory() throws -> URL {
         let directory = baseDirectory()
             .appendingPathComponent("downloads", isDirectory: true)
