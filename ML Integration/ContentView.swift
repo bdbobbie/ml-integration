@@ -1482,6 +1482,26 @@ struct ContentView: View {
                                 coherenceFlagRow(title: "Clipboard sync", ready: runtimeWorkbench.coherenceClipboardReady)
                                 coherenceFlagRow(title: "Launcher integration", ready: runtimeWorkbench.coherenceLauncherReady)
                             }
+
+                            Button("Assess Device/Media Readiness") {
+                                Task {
+                                    await runtimeWorkbench.assessDeviceMediaReadiness()
+                                    presentInfo(runtimeWorkbench.deviceMediaStatusSummary)
+                                }
+                            }
+                            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                            .disabled(isCreatingVM)
+
+                            Text(runtimeWorkbench.deviceMediaStatusSummary)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                coherenceFlagRow(title: "Audio", ready: runtimeWorkbench.deviceAudioReady)
+                                coherenceFlagRow(title: "Mic", ready: runtimeWorkbench.deviceMicReady)
+                                coherenceFlagRow(title: "Camera", ready: runtimeWorkbench.deviceCameraReady)
+                                coherenceFlagRow(title: "USB passthrough", ready: runtimeWorkbench.deviceUSBReady)
+                            }
                         }
                     }
 

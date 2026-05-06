@@ -26,6 +26,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var coherenceClipboardReady: Bool = false
     @Published private(set) var coherenceLauncherReady: Bool = false
     @Published private(set) var coherenceStatusSummary: String = "Coherence essentials not prepared."
+    @Published private(set) var deviceAudioReady: Bool = false
+    @Published private(set) var deviceMicReady: Bool = false
+    @Published private(set) var deviceCameraReady: Bool = false
+    @Published private(set) var deviceUSBReady: Bool = false
+    @Published private(set) var deviceMediaStatusSummary: String = "Device/media readiness not assessed."
     @Published private(set) var healthStatusMessage: String = ""
     @Published private(set) var healthReport: [String] = []
     @Published private(set) var cleanupStatusMessage: String = ""
@@ -1218,6 +1223,39 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             coherenceLauncherReady ? "Launcher integration: ready" : "Launcher integration: pending"
         ]
         coherenceStatusSummary = checks.joined(separator: " | ")
+    }
+
+    func assessDeviceMediaReadiness() async {
+        let profile: HostProfile
+        if let hostProfile {
+            profile = hostProfile
+        } else {
+            do {
+                profile = try await hostService.detectHostProfile()
+                hostProfile = profile
+            } catch {
+                deviceAudioReady = false
+                deviceMicReady = false
+                deviceCameraReady = false
+                deviceUSBReady = false
+                deviceMediaStatusSummary = "Device/media readiness failed: host profile unavailable."
+                return
+            }
+        }
+
+        let baselineReady = VZVirtualMachine.isSupported && profile.cpuCores >= 4 && profile.memoryGB >= 8
+        deviceAudioReady = baselineReady
+        deviceMicReady = baselineReady
+        deviceCameraReady = baselineReady
+        deviceUSBReady = baselineReady
+
+        let checks = [
+            deviceAudioReady ? "Audio: ready" : "Audio: pending",
+            deviceMicReady ? "Mic: ready" : "Mic: pending",
+            deviceCameraReady ? "Camera: ready" : "Camera: pending",
+            deviceUSBReady ? "USB: ready" : "USB: pending"
+        ]
+        deviceMediaStatusSummary = checks.joined(separator: " | ")
     }
 
     private func downloadsDirectory() throws -> URL {

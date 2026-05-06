@@ -548,6 +548,50 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testAssessDeviceMediaReadinessMarksAllReadyOnCapableHost() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.assessDeviceMediaReadiness()
+
+        XCTAssertTrue(viewModel.deviceAudioReady)
+        XCTAssertTrue(viewModel.deviceMicReady)
+        XCTAssertTrue(viewModel.deviceCameraReady)
+        XCTAssertTrue(viewModel.deviceUSBReady)
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("Audio: ready"))
+    }
+
+    @MainActor
+    func testAssessDeviceMediaReadinessMarksPendingOnWeakHost() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockWeakHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.assessDeviceMediaReadiness()
+
+        XCTAssertFalse(viewModel.deviceAudioReady)
+        XCTAssertFalse(viewModel.deviceMicReady)
+        XCTAssertFalse(viewModel.deviceCameraReady)
+        XCTAssertFalse(viewModel.deviceUSBReady)
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("pending"))
+    }
+
+    @MainActor
     func testAutoHealAfterScaffoldUpdatesHealthStatus() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }
@@ -1442,6 +1486,12 @@ final class URLProtocolMock: URLProtocol {
 struct MockHostService: HostProfileService {
     func detectHostProfile() async throws -> HostProfile {
         HostProfile(architecture: .appleSilicon, cpuCores: 8, memoryGB: 16, macOSVersion: "mock")
+    }
+}
+
+struct MockWeakHostService: HostProfileService {
+    func detectHostProfile() async throws -> HostProfile {
+        HostProfile(architecture: .intel, cpuCores: 2, memoryGB: 4, macOSVersion: "mock-weak")
     }
 }
 
