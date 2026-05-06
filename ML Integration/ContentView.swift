@@ -668,7 +668,10 @@ struct ContentView: View {
                 _ = blueprintPlanner.startEnvironmentTestingIfReady()
             }
             .buttonStyle(RedTextWhiteOutlineButtonStyle())
-            .disabled(!blueprintPlanner.isReadyForEnvironmentTesting)
+            .disabled(
+                !blueprintPlanner.isReadyForEnvironmentTesting
+                    || !runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting()
+            )
 
             Button("Export Phase State Report") {
                 _ = blueprintPlanner.exportPhaseStateReport()
