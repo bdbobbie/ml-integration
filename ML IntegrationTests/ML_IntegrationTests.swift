@@ -592,6 +592,48 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testAssessDisplayPlanReadinessMarksV2ReadyOnCapableHost() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.assessDisplayPlanReadiness()
+
+        XCTAssertEqual(viewModel.v1DisplayCountLocked, 1)
+        XCTAssertEqual(viewModel.v2DisplayTargetCount, 3)
+        XCTAssertTrue(viewModel.v2MultiDisplayPlanReady)
+        XCTAssertTrue(viewModel.displayPlanStatusSummary.contains("v1 locked to 1 display"))
+    }
+
+    @MainActor
+    func testAssessDisplayPlanReadinessMarksV2PendingOnWeakHost() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockWeakHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.assessDisplayPlanReadiness()
+
+        XCTAssertEqual(viewModel.v1DisplayCountLocked, 1)
+        XCTAssertEqual(viewModel.v2DisplayTargetCount, 3)
+        XCTAssertFalse(viewModel.v2MultiDisplayPlanReady)
+        XCTAssertTrue(viewModel.displayPlanStatusSummary.contains("pending"))
+    }
+
+    @MainActor
     func testAutoHealAfterScaffoldUpdatesHealthStatus() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }

@@ -31,6 +31,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var deviceCameraReady: Bool = false
     @Published private(set) var deviceUSBReady: Bool = false
     @Published private(set) var deviceMediaStatusSummary: String = "Device/media readiness not assessed."
+    @Published private(set) var v1DisplayCountLocked: Int = 1
+    @Published private(set) var v2DisplayTargetCount: Int = 3
+    @Published private(set) var v2MultiDisplayPlanReady: Bool = false
+    @Published private(set) var displayPlanStatusSummary: String = "Display plan not assessed."
     @Published private(set) var healthStatusMessage: String = ""
     @Published private(set) var healthReport: [String] = []
     @Published private(set) var cleanupStatusMessage: String = ""
@@ -1256,6 +1260,28 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             deviceUSBReady ? "USB: ready" : "USB: pending"
         ]
         deviceMediaStatusSummary = checks.joined(separator: " | ")
+    }
+
+    func assessDisplayPlanReadiness() async {
+        let profile: HostProfile
+        if let hostProfile {
+            profile = hostProfile
+        } else {
+            do {
+                profile = try await hostService.detectHostProfile()
+                hostProfile = profile
+            } catch {
+                v2MultiDisplayPlanReady = false
+                displayPlanStatusSummary = "Display plan assessment failed: host profile unavailable."
+                return
+            }
+        }
+
+        let canScaleBeyondV1 = profile.cpuCores >= 8 && profile.memoryGB >= 16 && VZVirtualMachine.isSupported
+        v2MultiDisplayPlanReady = canScaleBeyondV1
+        displayPlanStatusSummary =
+            "v1 locked to \(v1DisplayCountLocked) display. " +
+            "v2 target \(v2DisplayTargetCount) displays: \(canScaleBeyondV1 ? "ready" : "pending")"
     }
 
     private func downloadsDirectory() throws -> URL {

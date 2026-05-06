@@ -1502,6 +1502,30 @@ struct ContentView: View {
                                 coherenceFlagRow(title: "Camera", ready: runtimeWorkbench.deviceCameraReady)
                                 coherenceFlagRow(title: "USB passthrough", ready: runtimeWorkbench.deviceUSBReady)
                             }
+
+                            Button("Assess Display Plan (v1/v2)") {
+                                Task {
+                                    await runtimeWorkbench.assessDisplayPlanReadiness()
+                                    presentInfo(runtimeWorkbench.displayPlanStatusSummary)
+                                }
+                            }
+                            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                            .disabled(isCreatingVM)
+
+                            Text(runtimeWorkbench.displayPlanStatusSummary)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                coherenceFlagRow(
+                                    title: "v1 display lock (\(runtimeWorkbench.v1DisplayCountLocked))",
+                                    ready: true
+                                )
+                                coherenceFlagRow(
+                                    title: "v2 multi-display target (\(runtimeWorkbench.v2DisplayTargetCount))",
+                                    ready: runtimeWorkbench.v2MultiDisplayPlanReady
+                                )
+                            }
                         }
                     }
 
