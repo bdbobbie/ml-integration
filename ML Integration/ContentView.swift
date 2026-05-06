@@ -511,6 +511,16 @@ struct ContentView: View {
                                                     testsPassed: nil
                                                 )
                                             )
+                                            blueprintPlanner.syncPhaseMilestones(
+                                                coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
+                                                    && runtimeWorkbench.coherenceClipboardReady
+                                                    && runtimeWorkbench.coherenceLauncherReady,
+                                                deviceMediaReady: runtimeWorkbench.deviceAudioReady
+                                                    && runtimeWorkbench.deviceMicReady
+                                                    && runtimeWorkbench.deviceCameraReady
+                                                    && runtimeWorkbench.deviceUSBReady,
+                                                displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
+                                            )
                                         }
                                     }
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
