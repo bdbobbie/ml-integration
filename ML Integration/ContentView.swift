@@ -1461,6 +1461,28 @@ struct ContentView: View {
                                 .disabled(!hasManagedVM || isCreatingVM)
                             }
                         }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button("Prepare Coherence Essentials") {
+                                Task {
+                                    await runtimeWorkbench.selectManagedVM(selectedInstalledVMID)
+                                    await runtimeWorkbench.prepareCoherenceEssentials()
+                                    presentInfo(runtimeWorkbench.integrationStatusMessage)
+                                }
+                            }
+                            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                            .disabled(!hasManagedVM || isCreatingVM)
+
+                            Text(runtimeWorkbench.coherenceStatusSummary)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                coherenceFlagRow(title: "Shared folders", ready: runtimeWorkbench.coherenceSharedFoldersReady)
+                                coherenceFlagRow(title: "Clipboard sync", ready: runtimeWorkbench.coherenceClipboardReady)
+                                coherenceFlagRow(title: "Launcher integration", ready: runtimeWorkbench.coherenceLauncherReady)
+                            }
+                        }
                     }
 
                     Spacer()
@@ -2241,6 +2263,17 @@ struct ContentView: View {
             }
         } else {
             showActionAlert = true
+        }
+    }
+
+    @ViewBuilder
+    private func coherenceFlagRow(title: String, ready: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: ready ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(ready ? .green : .secondary)
+            Text("\(title): \(ready ? "ready" : "pending")")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
     }
 
