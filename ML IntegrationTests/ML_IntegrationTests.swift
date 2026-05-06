@@ -792,6 +792,42 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testCurrentPhaseReadinessReflectsAssessedState() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-readiness",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        await viewModel.prepareCoherenceEssentials()
+        await viewModel.assessDeviceMediaReadiness()
+        await viewModel.assessDisplayPlanReadiness()
+
+        let readiness = viewModel.currentPhaseReadiness()
+        XCTAssertTrue(readiness.coherenceReady)
+        XCTAssertTrue(readiness.deviceMediaReady)
+        XCTAssertTrue(readiness.displayV2Ready)
+    }
+
+    @MainActor
     func testAutoHealAfterScaffoldUpdatesHealthStatus() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }

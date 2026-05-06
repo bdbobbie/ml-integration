@@ -5,6 +5,12 @@ import Darwin
 
 @MainActor
 final class RuntimeWorkbenchViewModel: ObservableObject {
+    struct RuntimePhaseReadiness: Equatable {
+        let coherenceReady: Bool
+        let deviceMediaReady: Bool
+        let displayV2Ready: Bool
+    }
+
     @Published private(set) var hostProfile: HostProfile?
     @Published private(set) var hostErrorMessage: String = ""
 
@@ -1309,16 +1315,22 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         await assessDeviceMediaReadiness()
         await assessDisplayPlanReadiness()
 
-        let coherenceReady = coherenceSharedFoldersReady && coherenceClipboardReady && coherenceLauncherReady
-        let deviceReady = deviceAudioReady && deviceMicReady && deviceCameraReady && deviceUSBReady
-        let displayReady = v2MultiDisplayPlanReady
+        let readiness = currentPhaseReadiness()
 
         let summary =
-            "Sweep complete | Coherence: \(coherenceReady ? "ready" : "pending") | " +
-            "Device/Media: \(deviceReady ? "ready" : "pending") | " +
-            "Display v2: \(displayReady ? "ready" : "pending")"
+            "Sweep complete | Coherence: \(readiness.coherenceReady ? "ready" : "pending") | " +
+            "Device/Media: \(readiness.deviceMediaReady ? "ready" : "pending") | " +
+            "Display v2: \(readiness.displayV2Ready ? "ready" : "pending")"
         integrationStatusMessage = summary
         return summary
+    }
+
+    func currentPhaseReadiness() -> RuntimePhaseReadiness {
+        RuntimePhaseReadiness(
+            coherenceReady: coherenceSharedFoldersReady && coherenceClipboardReady && coherenceLauncherReady,
+            deviceMediaReady: deviceAudioReady && deviceMicReady && deviceCameraReady && deviceUSBReady,
+            displayV2Ready: v2MultiDisplayPlanReady
+        )
     }
 
     private func downloadsDirectory() throws -> URL {
