@@ -22,6 +22,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var vmRuntimeState: VMRuntimeState = .stopped
     @Published private(set) var vmRuntimeStatusMessage: String = ""
     @Published private(set) var integrationStatusMessage: String = ""
+    @Published private(set) var coherenceSharedFoldersReady: Bool = false
+    @Published private(set) var coherenceClipboardReady: Bool = false
+    @Published private(set) var coherenceLauncherReady: Bool = false
+    @Published private(set) var coherenceStatusSummary: String = "Coherence essentials not prepared."
     @Published private(set) var healthStatusMessage: String = ""
     @Published private(set) var healthReport: [String] = []
     @Published private(set) var cleanupStatusMessage: String = ""
@@ -1129,8 +1133,14 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
         do {
             try await integrationService.configureSharedResources(for: vmID)
+            coherenceSharedFoldersReady = true
+            coherenceClipboardReady = true
+            updateCoherenceStatusSummary()
             integrationStatusMessage = "Shared resources configured for VM \(vmID.uuidString)."
         } catch {
+            coherenceSharedFoldersReady = false
+            coherenceClipboardReady = false
+            updateCoherenceStatusSummary()
             integrationStatusMessage = "Shared resource configuration failed: \(error.localizedDescription)"
         }
     }
@@ -1143,8 +1153,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
         do {
             try await integrationService.configureLauncherEntries(for: vmID)
+            coherenceLauncherReady = true
+            updateCoherenceStatusSummary()
             integrationStatusMessage = "Launcher entries configured for VM \(vmID.uuidString)."
         } catch {
+            coherenceLauncherReady = false
+            updateCoherenceStatusSummary()
             integrationStatusMessage = "Launcher configuration failed: \(error.localizedDescription)"
         }
     }
@@ -1161,6 +1175,49 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         } catch {
             integrationStatusMessage = "Rootless integration failed: \(error.localizedDescription)"
         }
+    }
+
+    func prepareCoherenceEssentials() async {
+        guard let vmID = activeVMID else {
+            integrationStatusMessage = IntegrationRuntimeError.vmNotSelected.localizedDescription
+            return
+        }
+
+        integrationStatusMessage = "Preparing coherence essentials for VM \(vmID.uuidString)..."
+        coherenceSharedFoldersReady = false
+        coherenceClipboardReady = false
+        coherenceLauncherReady = false
+        updateCoherenceStatusSummary()
+
+        do {
+            try await integrationService.configureSharedResources(for: vmID)
+            coherenceSharedFoldersReady = true
+            coherenceClipboardReady = true
+            updateCoherenceStatusSummary()
+        } catch {
+            integrationStatusMessage = "Coherence setup failed at shared resources: \(error.localizedDescription)"
+            updateCoherenceStatusSummary()
+            return
+        }
+
+        do {
+            try await integrationService.configureLauncherEntries(for: vmID)
+            coherenceLauncherReady = true
+            integrationStatusMessage = "Coherence essentials ready for VM \(vmID.uuidString)."
+            updateCoherenceStatusSummary()
+        } catch {
+            integrationStatusMessage = "Coherence setup failed at launcher integration: \(error.localizedDescription)"
+            updateCoherenceStatusSummary()
+        }
+    }
+
+    private func updateCoherenceStatusSummary() {
+        let checks = [
+            coherenceSharedFoldersReady ? "Shared folders: ready" : "Shared folders: pending",
+            coherenceClipboardReady ? "Clipboard sync: ready" : "Clipboard sync: pending",
+            coherenceLauncherReady ? "Launcher integration: ready" : "Launcher integration: pending"
+        ]
+        coherenceStatusSummary = checks.joined(separator: " | ")
     }
 
     private func downloadsDirectory() throws -> URL {

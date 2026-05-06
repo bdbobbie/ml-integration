@@ -473,6 +473,81 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testPrepareCoherenceEssentialsConfiguresSharedClipboardAndLauncher() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let integrationService = MockIntegrationService()
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: integrationService,
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-coherence",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        await viewModel.prepareCoherenceEssentials()
+
+        XCTAssertEqual(integrationService.sharedResourcesCalls, 1)
+        XCTAssertEqual(integrationService.launcherCalls, 1)
+        XCTAssertTrue(viewModel.coherenceSharedFoldersReady)
+        XCTAssertTrue(viewModel.coherenceClipboardReady)
+        XCTAssertTrue(viewModel.coherenceLauncherReady)
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("Coherence essentials ready"))
+    }
+
+    @MainActor
+    func testPrepareCoherenceEssentialsStopsWhenSharedResourcesFail() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let integrationService = MockIntegrationService()
+        integrationService.failSharedResources = true
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: integrationService,
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-coherence-fail",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        await viewModel.prepareCoherenceEssentials()
+
+        XCTAssertEqual(integrationService.sharedResourcesCalls, 0)
+        XCTAssertEqual(integrationService.launcherCalls, 0)
+        XCTAssertFalse(viewModel.coherenceSharedFoldersReady)
+        XCTAssertFalse(viewModel.coherenceClipboardReady)
+        XCTAssertFalse(viewModel.coherenceLauncherReady)
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("shared resources"))
+    }
+
+    @MainActor
     func testAutoHealAfterScaffoldUpdatesHealthStatus() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }
@@ -1473,14 +1548,22 @@ final class MockIntegrationService: IntegrationService {
     var sharedResourcesCalls = 0
     var launcherCalls = 0
     var rootlessCalls = 0
+    var failSharedResources = false
+    var failLauncher = false
 
     func configureSharedResources(for vmID: UUID) async throws {
         _ = vmID
+        if failSharedResources {
+            throw IntegrationRuntimeError.scriptGenerationFailed("mock shared failure")
+        }
         sharedResourcesCalls += 1
     }
 
     func configureLauncherEntries(for vmID: UUID) async throws {
         _ = vmID
+        if failLauncher {
+            throw IntegrationRuntimeError.scriptGenerationFailed("mock launcher failure")
+        }
         launcherCalls += 1
     }
 
