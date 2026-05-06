@@ -637,16 +637,7 @@ struct ContentView: View {
             Button("Run Phase Sweep") {
                 Task {
                     let summary = await runtimeWorkbench.runPhaseSweep()
-                    blueprintPlanner.syncPhaseMilestones(
-                        coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
-                            && runtimeWorkbench.coherenceClipboardReady
-                            && runtimeWorkbench.coherenceLauncherReady,
-                        deviceMediaReady: runtimeWorkbench.deviceAudioReady
-                            && runtimeWorkbench.deviceMicReady
-                            && runtimeWorkbench.deviceCameraReady
-                            && runtimeWorkbench.deviceUSBReady,
-                        displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
-                    )
+                    syncPhaseMilestonesFromRuntimeReadiness()
                     presentInfo(summary)
                 }
             }
@@ -668,16 +659,7 @@ struct ContentView: View {
                             testsPassed: nil
                         )
                     )
-                    blueprintPlanner.syncPhaseMilestones(
-                        coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
-                            && runtimeWorkbench.coherenceClipboardReady
-                            && runtimeWorkbench.coherenceLauncherReady,
-                        deviceMediaReady: runtimeWorkbench.deviceAudioReady
-                            && runtimeWorkbench.deviceMicReady
-                            && runtimeWorkbench.deviceCameraReady
-                            && runtimeWorkbench.deviceUSBReady,
-                        displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
-                    )
+                    syncPhaseMilestonesFromRuntimeReadiness()
                 }
             }
             .buttonStyle(RedTextWhiteOutlineButtonStyle())
@@ -693,6 +675,20 @@ struct ContentView: View {
             }
             .buttonStyle(RedTextWhiteOutlineButtonStyle())
         }
+    }
+
+    @MainActor
+    private func syncPhaseMilestonesFromRuntimeReadiness() {
+        blueprintPlanner.syncPhaseMilestones(
+            coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
+                && runtimeWorkbench.coherenceClipboardReady
+                && runtimeWorkbench.coherenceLauncherReady,
+            deviceMediaReady: runtimeWorkbench.deviceAudioReady
+                && runtimeWorkbench.deviceMicReady
+                && runtimeWorkbench.deviceCameraReady
+                && runtimeWorkbench.deviceUSBReady,
+            displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
+        )
     }
 
     private let supportGitHubOwner = "bdbobbie"
@@ -1528,16 +1524,7 @@ struct ContentView: View {
                                 Task {
                                     await runtimeWorkbench.selectManagedVM(selectedInstalledVMID)
                                     await runtimeWorkbench.prepareCoherenceEssentials()
-                                    blueprintPlanner.syncPhaseMilestones(
-                                        coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
-                                            && runtimeWorkbench.coherenceClipboardReady
-                                            && runtimeWorkbench.coherenceLauncherReady,
-                                        deviceMediaReady: runtimeWorkbench.deviceAudioReady
-                                            && runtimeWorkbench.deviceMicReady
-                                            && runtimeWorkbench.deviceCameraReady
-                                            && runtimeWorkbench.deviceUSBReady,
-                                        displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
-                                    )
+                                    syncPhaseMilestonesFromRuntimeReadiness()
                                     presentInfo(runtimeWorkbench.integrationStatusMessage)
                                 }
                             }
@@ -1557,16 +1544,7 @@ struct ContentView: View {
                             Button("Assess Device/Media Readiness") {
                                 Task {
                                     await runtimeWorkbench.assessDeviceMediaReadiness()
-                                    blueprintPlanner.syncPhaseMilestones(
-                                        coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
-                                            && runtimeWorkbench.coherenceClipboardReady
-                                            && runtimeWorkbench.coherenceLauncherReady,
-                                        deviceMediaReady: runtimeWorkbench.deviceAudioReady
-                                            && runtimeWorkbench.deviceMicReady
-                                            && runtimeWorkbench.deviceCameraReady
-                                            && runtimeWorkbench.deviceUSBReady,
-                                        displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
-                                    )
+                                    syncPhaseMilestonesFromRuntimeReadiness()
                                     presentInfo(runtimeWorkbench.deviceMediaStatusSummary)
                                 }
                             }
@@ -1587,16 +1565,7 @@ struct ContentView: View {
                             Button("Assess Display Plan (v1/v2)") {
                                 Task {
                                     await runtimeWorkbench.assessDisplayPlanReadiness()
-                                    blueprintPlanner.syncPhaseMilestones(
-                                        coherenceReady: runtimeWorkbench.coherenceSharedFoldersReady
-                                            && runtimeWorkbench.coherenceClipboardReady
-                                            && runtimeWorkbench.coherenceLauncherReady,
-                                        deviceMediaReady: runtimeWorkbench.deviceAudioReady
-                                            && runtimeWorkbench.deviceMicReady
-                                            && runtimeWorkbench.deviceCameraReady
-                                            && runtimeWorkbench.deviceUSBReady,
-                                        displayV2Ready: runtimeWorkbench.v2MultiDisplayPlanReady
-                                    )
+                                    syncPhaseMilestonesFromRuntimeReadiness()
                                     presentInfo(runtimeWorkbench.displayPlanStatusSummary)
                                 }
                             }
