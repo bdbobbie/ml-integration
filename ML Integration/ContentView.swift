@@ -1755,6 +1755,11 @@ struct ContentView: View {
                                     .font(.caption2)
                                     .foregroundColor(.red)
                             }
+                            if !runtimeWorkbench.integrationRemediationHistoryDeleteStatusMessage.isEmpty {
+                                Text(runtimeWorkbench.integrationRemediationHistoryDeleteStatusMessage)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
 
                             TextField("Search report history", text: $remediationHistorySearchTerm)
                                 .textFieldStyle(.roundedBorder)
@@ -1789,6 +1794,10 @@ struct ContentView: View {
                                     Spacer()
                                     Button("Load") {
                                         runtimeWorkbench.loadIntegrationRemediationReport(atPath: reportEntry.path)
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    Button("Delete") {
+                                        runtimeWorkbench.deleteIntegrationRemediationReport(atPath: reportEntry.path)
                                     }
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                 }

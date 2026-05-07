@@ -3135,6 +3135,89 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(viewModel.integrationRemediationReportHistory.contains(where: { $0.fileName == "valid.json" && !$0.isMalformed }))
     }
 
+    @MainActor
+    func testDeleteIntegrationRemediationReportRemovesFileAndClearsLoadedSelection() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-delete-report-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let reportsDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+        let report = IntegrationRemediationRunReport(
+            id: UUID(),
+            timestampISO8601: ISO8601DateFormatter().string(from: Date()),
+            attemptedCount: 1,
+            fixedCount: 1,
+            remainingCount: 0,
+            vmResults: []
+        )
+        let reportURL = reportsDirectory.appendingPathComponent("delete-me.json")
+        try JSONEncoder().encode(report).write(to: reportURL, options: [.atomic])
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        viewModel.loadIntegrationRemediationReport(atPath: reportURL.path)
+        viewModel.refreshIntegrationRemediationReportHistory()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reportURL.path))
+
+        viewModel.deleteIntegrationRemediationReport(atPath: reportURL.path)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reportURL.path))
+        XCTAssertEqual(viewModel.lastIntegrationRemediationReportPath, "")
+        XCTAssertEqual(viewModel.lastIntegrationRemediationReportSummary, "")
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportResults.isEmpty)
+        XCTAssertTrue(viewModel.integrationRemediationHistoryDeleteStatusMessage.contains("Deleted remediation report"))
+    }
+
+    @MainActor
+    func testDeleteIntegrationRemediationReportRejectsOutsideReportsFolder() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-delete-guard-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let outsideURL = testRoot.appendingPathComponent("outside.json")
+        try Data("{}".utf8).write(to: outsideURL, options: [.atomic])
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        viewModel.deleteIntegrationRemediationReport(atPath: outsideURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outsideURL.path))
+        XCTAssertEqual(
+            viewModel.integrationRemediationHistoryDeleteStatusMessage,
+            "Refused to delete file outside remediation reports folder."
+        )
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

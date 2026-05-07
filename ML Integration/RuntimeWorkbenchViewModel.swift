@@ -106,6 +106,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var integrationRemediationReportHistory: [IntegrationRemediationReportHistoryEntry] = []
     @Published private(set) var integrationRemediationHistoryCleanupStatusMessage: String = ""
     @Published private(set) var malformedIntegrationRemediationReportCount: Int = 0
+    @Published private(set) var integrationRemediationHistoryDeleteStatusMessage: String = ""
     private let remediationHistoryRetentionLimit: Int = 25
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -1583,6 +1584,32 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         refreshIntegrationRemediationReportHistory()
         integrationRemediationHistoryCleanupStatusMessage =
             "Removed \(removedCount) old remediation report(s). Retained newest \(safeRetainCount)."
+    }
+
+    func deleteIntegrationRemediationReport(atPath path: String) {
+        let reportsDirectory = integrationRemediationReportsDirectoryURL()
+        let candidateURL = URL(fileURLWithPath: path).standardizedFileURL
+        let baseURL = reportsDirectory.standardizedFileURL
+        guard candidateURL.path.hasPrefix(baseURL.path + "/") || candidateURL.path == baseURL.path else {
+            integrationRemediationHistoryDeleteStatusMessage = "Refused to delete file outside remediation reports folder."
+            return
+        }
+        guard FileManager.default.fileExists(atPath: candidateURL.path) else {
+            integrationRemediationHistoryDeleteStatusMessage = "Report file not found."
+            return
+        }
+        do {
+            try FileManager.default.removeItem(at: candidateURL)
+            if lastIntegrationRemediationReportPath == candidateURL.path {
+                lastIntegrationRemediationReportPath = ""
+                lastIntegrationRemediationReportSummary = ""
+                lastIntegrationRemediationReportResults = []
+            }
+            refreshIntegrationRemediationReportHistory()
+            integrationRemediationHistoryDeleteStatusMessage = "Deleted remediation report: \(candidateURL.lastPathComponent)"
+        } catch {
+            integrationRemediationHistoryDeleteStatusMessage = "Failed to delete remediation report: \(error.localizedDescription)"
+        }
     }
 
     func integrationRemediationReportsDirectoryURL() -> URL {
