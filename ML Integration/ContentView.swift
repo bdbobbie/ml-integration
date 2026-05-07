@@ -1607,6 +1607,7 @@ struct ContentView: View {
                                 coherenceFlagRow(title: "Shared folders", ready: runtimeWorkbench.coherenceSharedFoldersReady)
                                 coherenceFlagRow(title: "Clipboard sync", ready: runtimeWorkbench.coherenceClipboardReady)
                                 coherenceFlagRow(title: "Launcher integration", ready: runtimeWorkbench.coherenceLauncherReady)
+                                coherenceFlagRow(title: "Window policy", ready: runtimeWorkbench.coherenceWindowPolicyReady)
                             }
 
                             Button("Assess Device/Media Readiness") {
