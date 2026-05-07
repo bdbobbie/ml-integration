@@ -31,6 +31,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var coherenceSharedFoldersReady: Bool = false
     @Published private(set) var coherenceClipboardReady: Bool = false
     @Published private(set) var coherenceLauncherReady: Bool = false
+    @Published private(set) var coherenceWindowPolicyReady: Bool = false
     @Published private(set) var coherenceStatusSummary: String = "Coherence essentials not prepared."
     @Published private(set) var deviceAudioReady: Bool = false
     @Published private(set) var deviceMicReady: Bool = false
@@ -1203,6 +1204,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         coherenceSharedFoldersReady = false
         coherenceClipboardReady = false
         coherenceLauncherReady = false
+        coherenceWindowPolicyReady = false
         updateCoherenceStatusSummary()
 
         do {
@@ -1220,6 +1222,13 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         do {
             try await integrationService.configureLauncherEntries(for: vmID)
             coherenceLauncherReady = true
+            coherenceWindowPolicyReady = verifyWindowCoherenceArtifacts(for: vmID)
+            guard coherenceWindowPolicyReady else {
+                integrationStatusMessage = "Coherence setup failed at window policy verification: required artifacts are missing."
+                updateCoherenceStatusSummary()
+                await logRunEvent(stage: .coherenceEssentials, result: .failed, vmID: vmID, message: integrationStatusMessage)
+                return
+            }
             integrationStatusMessage = "Coherence essentials ready for VM \(vmID.uuidString)."
             updateCoherenceStatusSummary()
             await logRunEvent(stage: .coherenceEssentials, result: .success, vmID: vmID, message: integrationStatusMessage)
@@ -1234,9 +1243,21 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         let checks = [
             coherenceSharedFoldersReady ? "Shared folders: ready" : "Shared folders: pending",
             coherenceClipboardReady ? "Clipboard sync: ready" : "Clipboard sync: pending",
-            coherenceLauncherReady ? "Launcher integration: ready" : "Launcher integration: pending"
+            coherenceLauncherReady ? "Launcher integration: ready" : "Launcher integration: pending",
+            coherenceWindowPolicyReady ? "Window policy: ready" : "Window policy: pending"
         ]
         coherenceStatusSummary = checks.joined(separator: " | ")
+    }
+
+    private func verifyWindowCoherenceArtifacts(for vmID: UUID) -> Bool {
+        let integrationDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration", isDirectory: true)
+            .appendingPathComponent(vmID.uuidString, isDirectory: true)
+        let policy = integrationDirectory.appendingPathComponent("window-coherence-policy.json").path
+        let hostScript = integrationDirectory
+            .appendingPathComponent("host-scripts", isDirectory: true)
+            .appendingPathComponent("apply-window-coherence.command").path
+        return FileManager.default.fileExists(atPath: policy) && FileManager.default.fileExists(atPath: hostScript)
     }
 
     func assessDeviceMediaReadiness() async {
@@ -1322,7 +1343,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     func currentPhaseReadiness() -> RuntimePhaseReadiness {
         RuntimePhaseReadiness(
-            coherenceReady: coherenceSharedFoldersReady && coherenceClipboardReady && coherenceLauncherReady,
+            coherenceReady: coherenceSharedFoldersReady && coherenceClipboardReady && coherenceLauncherReady && coherenceWindowPolicyReady,
             deviceMediaReady: deviceAudioReady && deviceMicReady && deviceCameraReady && deviceUSBReady,
             displayV2Ready: v2MultiDisplayPlanReady
         )

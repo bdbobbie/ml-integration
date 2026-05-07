@@ -681,6 +681,7 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(viewModel.coherenceSharedFoldersReady)
         XCTAssertTrue(viewModel.coherenceClipboardReady)
         XCTAssertTrue(viewModel.coherenceLauncherReady)
+        XCTAssertTrue(viewModel.coherenceWindowPolicyReady)
         XCTAssertTrue(viewModel.integrationStatusMessage.contains("Coherence essentials ready"))
     }
 
@@ -719,7 +720,45 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertFalse(viewModel.coherenceSharedFoldersReady)
         XCTAssertFalse(viewModel.coherenceClipboardReady)
         XCTAssertFalse(viewModel.coherenceLauncherReady)
+        XCTAssertFalse(viewModel.coherenceWindowPolicyReady)
         XCTAssertTrue(viewModel.integrationStatusMessage.contains("shared resources"))
+    }
+
+    @MainActor
+    func testPrepareCoherenceEssentialsFailsWhenWindowPolicyArtifactsAreMissing() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let integrationService = MockIntegrationService()
+        integrationService.emitWindowCoherenceArtifacts = false
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: integrationService,
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-coherence-window-policy-missing",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+
+        await viewModel.prepareCoherenceEssentials()
+
+        XCTAssertTrue(viewModel.coherenceSharedFoldersReady)
+        XCTAssertTrue(viewModel.coherenceClipboardReady)
+        XCTAssertTrue(viewModel.coherenceLauncherReady)
+        XCTAssertFalse(viewModel.coherenceWindowPolicyReady)
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("window policy verification"))
     }
 
     @MainActor
@@ -2127,11 +2166,23 @@ final class MockIntegrationService: IntegrationService {
     var rootlessCalls = 0
     var failSharedResources = false
     var failLauncher = false
+    var emitWindowCoherenceArtifacts = true
 
     func configureSharedResources(for vmID: UUID) async throws {
         _ = vmID
         if failSharedResources {
             throw IntegrationRuntimeError.scriptGenerationFailed("mock shared failure")
+        }
+        if emitWindowCoherenceArtifacts {
+            let integrationDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+                .appendingPathComponent("integration", isDirectory: true)
+                .appendingPathComponent(vmID.uuidString, isDirectory: true)
+            let hostScripts = integrationDirectory.appendingPathComponent("host-scripts", isDirectory: true)
+            try FileManager.default.createDirectory(at: hostScripts, withIntermediateDirectories: true)
+            let policy = integrationDirectory.appendingPathComponent("window-coherence-policy.json")
+            let script = hostScripts.appendingPathComponent("apply-window-coherence.command")
+            try Data("{}".utf8).write(to: policy)
+            try Data("#!/bin/sh\n".utf8).write(to: script)
         }
         sharedResourcesCalls += 1
     }
