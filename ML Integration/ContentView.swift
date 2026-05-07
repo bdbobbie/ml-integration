@@ -2199,6 +2199,51 @@ struct ContentView: View {
                             }
 
                             VStack(alignment: .leading, spacing: 6) {
+                                Toggle(
+                                    "Enable Audio",
+                                    isOn: Binding(
+                                        get: { runtimeWorkbench.audioInputEnabled },
+                                        set: { value in
+                                            runtimeWorkbench.setDeviceMediaInputs(
+                                                audioEnabled: value,
+                                                micEnabled: runtimeWorkbench.micInputEnabled,
+                                                cameraEnabled: runtimeWorkbench.cameraInputEnabled
+                                            )
+                                        }
+                                    )
+                                )
+                                .font(.caption2)
+                                Toggle(
+                                    "Enable Mic",
+                                    isOn: Binding(
+                                        get: { runtimeWorkbench.micInputEnabled },
+                                        set: { value in
+                                            runtimeWorkbench.setDeviceMediaInputs(
+                                                audioEnabled: runtimeWorkbench.audioInputEnabled,
+                                                micEnabled: value,
+                                                cameraEnabled: runtimeWorkbench.cameraInputEnabled
+                                            )
+                                        }
+                                    )
+                                )
+                                .font(.caption2)
+                                Toggle(
+                                    "Enable Camera",
+                                    isOn: Binding(
+                                        get: { runtimeWorkbench.cameraInputEnabled },
+                                        set: { value in
+                                            runtimeWorkbench.setDeviceMediaInputs(
+                                                audioEnabled: runtimeWorkbench.audioInputEnabled,
+                                                micEnabled: runtimeWorkbench.micInputEnabled,
+                                                cameraEnabled: value
+                                            )
+                                        }
+                                    )
+                                )
+                                .font(.caption2)
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
                                 Text("USB Passthrough")
                                     .font(.caption)
                                     .foregroundColor(.secondary)

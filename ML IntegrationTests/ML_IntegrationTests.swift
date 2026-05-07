@@ -808,6 +808,52 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testDeviceMediaTogglesCanDisableAudioMicCameraOnCapableHost() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await viewModel.assessDeviceMediaReadiness()
+        viewModel.setDeviceMediaInputs(audioEnabled: false, micEnabled: false, cameraEnabled: false)
+
+        XCTAssertFalse(viewModel.deviceAudioReady)
+        XCTAssertFalse(viewModel.deviceMicReady)
+        XCTAssertFalse(viewModel.deviceCameraReady)
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("Audio: disabled"))
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("Mic: disabled"))
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("Camera: disabled"))
+    }
+
+    @MainActor
+    func testDeviceMediaTogglesKeepPendingStateOnWeakHostWhenEnabled() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockWeakHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await viewModel.assessDeviceMediaReadiness()
+        viewModel.setDeviceMediaInputs(audioEnabled: true, micEnabled: true, cameraEnabled: true)
+
+        XCTAssertFalse(viewModel.deviceAudioReady)
+        XCTAssertFalse(viewModel.deviceMicReady)
+        XCTAssertFalse(viewModel.deviceCameraReady)
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("Audio: pending"))
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("Mic: pending"))
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("Camera: pending"))
+    }
+
+    @MainActor
     func testAssessDeviceMediaReadinessDiscoversUSBDevicesOnCapableHost() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

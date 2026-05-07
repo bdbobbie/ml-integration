@@ -77,6 +77,9 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var deviceMicReady: Bool = false
     @Published private(set) var deviceCameraReady: Bool = false
     @Published private(set) var deviceUSBReady: Bool = false
+    @Published private(set) var audioInputEnabled: Bool = true
+    @Published private(set) var micInputEnabled: Bool = true
+    @Published private(set) var cameraInputEnabled: Bool = true
     @Published private(set) var availableUSBDevices: [USBPassthroughDevice] = []
     @Published private(set) var attachedUSBDeviceIDs: [String] = []
     @Published private(set) var selectedUSBDeviceID: String?
@@ -2379,16 +2382,16 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
         await logRunEvent(stage: .deviceMediaReadiness, result: .inProgress, vmID: activeVMID, message: "Assessing device/media readiness.")
         let baselineReady = VZVirtualMachine.isSupported && profile.cpuCores >= 4 && profile.memoryGB >= 8
-        deviceAudioReady = baselineReady
-        deviceMicReady = baselineReady
-        deviceCameraReady = baselineReady
+        deviceAudioReady = baselineReady && audioInputEnabled
+        deviceMicReady = baselineReady && micInputEnabled
+        deviceCameraReady = baselineReady && cameraInputEnabled
         refreshUSBDeviceInventory(isHostCapable: baselineReady)
         deviceUSBReady = baselineReady && !availableUSBDevices.isEmpty
 
         let checks = [
-            deviceAudioReady ? "Audio: ready" : "Audio: pending",
-            deviceMicReady ? "Mic: ready" : "Mic: pending",
-            deviceCameraReady ? "Camera: ready" : "Camera: pending",
+            deviceAudioReady ? "Audio: ready" : (audioInputEnabled ? "Audio: pending" : "Audio: disabled"),
+            deviceMicReady ? "Mic: ready" : (micInputEnabled ? "Mic: pending" : "Mic: disabled"),
+            deviceCameraReady ? "Camera: ready" : (cameraInputEnabled ? "Camera: pending" : "Camera: disabled"),
             deviceUSBReady ? "USB: ready" : "USB: pending"
         ]
         deviceMediaStatusSummary = checks.joined(separator: " | ")
@@ -2398,6 +2401,27 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             vmID: activeVMID,
             message: deviceMediaStatusSummary
         )
+    }
+
+    func setDeviceMediaInputs(audioEnabled: Bool, micEnabled: Bool, cameraEnabled: Bool) {
+        audioInputEnabled = audioEnabled
+        micInputEnabled = micEnabled
+        cameraInputEnabled = cameraEnabled
+        if let profile = hostProfile {
+            let baselineReady = VZVirtualMachine.isSupported && profile.cpuCores >= 4 && profile.memoryGB >= 8
+            deviceAudioReady = baselineReady && audioInputEnabled
+            deviceMicReady = baselineReady && micInputEnabled
+            deviceCameraReady = baselineReady && cameraInputEnabled
+            let checks = [
+                deviceAudioReady ? "Audio: ready" : (audioInputEnabled ? "Audio: pending" : "Audio: disabled"),
+                deviceMicReady ? "Mic: ready" : (micInputEnabled ? "Mic: pending" : "Mic: disabled"),
+                deviceCameraReady ? "Camera: ready" : (cameraInputEnabled ? "Camera: pending" : "Camera: disabled"),
+                deviceUSBReady ? "USB: ready" : "USB: pending"
+            ]
+            deviceMediaStatusSummary = checks.joined(separator: " | ")
+        } else {
+            deviceMediaStatusSummary = "Device/media toggles updated. Run assessment to refresh readiness."
+        }
     }
 
     func selectUSBDevice(_ id: String?) {
