@@ -683,6 +683,7 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(viewModel.coherenceLauncherReady)
         XCTAssertTrue(viewModel.coherenceWindowPolicyReady)
         XCTAssertTrue(viewModel.integrationStatusMessage.contains("Coherence essentials ready"))
+        XCTAssertTrue(viewModel.coherenceStatusSummary.contains("Window policy: ready"))
     }
 
     @MainActor
@@ -759,6 +760,7 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(viewModel.coherenceLauncherReady)
         XCTAssertFalse(viewModel.coherenceWindowPolicyReady)
         XCTAssertTrue(viewModel.integrationStatusMessage.contains("window policy verification"))
+        XCTAssertTrue(viewModel.coherenceStatusSummary.contains("Window policy: pending"))
     }
 
     @MainActor
