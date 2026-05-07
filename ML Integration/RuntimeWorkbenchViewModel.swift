@@ -99,6 +99,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var runtimeStateByVMID: [UUID: VMRuntimeState] = [:]
     @Published private(set) var fleetDiagnosticsByVMID: [UUID: FleetRuntimeDiagnostic] = [:]
     @Published private(set) var integrationCapabilitiesByVMID: [UUID: VMIntegrationCapabilities] = [:]
+    @Published private(set) var launcherRunStateByVMID: [UUID: LauncherRunState] = [:]
     @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
     @Published private(set) var lastIntegrationRemediationReportPath: String = ""
     @Published private(set) var lastIntegrationRemediationReportSummary: String = ""
@@ -1271,6 +1272,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         integrationCapabilitiesByVMID[vmID] ?? .empty
     }
 
+    func launcherRunState(for vmID: UUID) -> LauncherRunState? {
+        launcherRunStateByVMID[vmID]
+    }
+
     func integrationHealthBadge(for vmID: UUID) -> (status: IntegrationHealthBadgeStatus, summary: String) {
         syncIntegrationCapabilities(for: vmID)
         let capabilities = integrationCapabilities(for: vmID)
@@ -1388,6 +1393,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
         guard FileManager.default.fileExists(atPath: launcherEntry.scriptPath) else {
             integrationStatusMessage = "Launcher script is missing for \(launcherEntry.name)."
+            launcherRunStateByVMID[vmID] = LauncherRunState(
+                launcherName: launcherEntry.name,
+                status: .failed,
+                updatedAt: Date(),
+                message: integrationStatusMessage
+            )
             fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
                 lastAction: "launcher-\(launcherEntry.name)",
                 lastActionAt: Date(),
@@ -1395,6 +1406,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             )
             return
         }
+        launcherRunStateByVMID[vmID] = LauncherRunState(
+            launcherName: launcherEntry.name,
+            status: .running,
+            updatedAt: Date(),
+            message: "Launching \(launcherEntry.name)..."
+        )
         for attempt in 1...launcherExecutionMaxAttempts {
             do {
                 let output = try await launcherExecutor.executeScript(atPath: launcherEntry.scriptPath)
@@ -1402,6 +1419,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 let retrySuffix = attempt > 1 ? " (recovered on retry \(attempt)/\(launcherExecutionMaxAttempts))" : ""
                 integrationStatusMessage =
                     "Launched \(launcherEntry.name) for VM \(vmID.uuidString).\(outputSuffix)\(retrySuffix)"
+                launcherRunStateByVMID[vmID] = LauncherRunState(
+                    launcherName: launcherEntry.name,
+                    status: .succeeded,
+                    updatedAt: Date(),
+                    message: integrationStatusMessage
+                )
                 fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
                     lastAction: "launcher-\(launcherEntry.name)",
                     lastActionAt: Date(),
@@ -1412,6 +1435,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 if attempt == launcherExecutionMaxAttempts {
                     integrationStatusMessage =
                         "Launcher execution failed for \(launcherEntry.name) after \(launcherExecutionMaxAttempts) attempt(s): \(error.localizedDescription)"
+                    launcherRunStateByVMID[vmID] = LauncherRunState(
+                        launcherName: launcherEntry.name,
+                        status: .failed,
+                        updatedAt: Date(),
+                        message: integrationStatusMessage
+                    )
                     fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
                         lastAction: "launcher-\(launcherEntry.name)",
                         lastActionAt: Date(),

@@ -205,6 +205,19 @@ struct VMIntegrationCapabilities: Equatable {
     )
 }
 
+enum LauncherRunStatus: String, Equatable {
+    case running = "Running"
+    case succeeded = "Succeeded"
+    case failed = "Failed"
+}
+
+struct LauncherRunState: Equatable {
+    let launcherName: String
+    let status: LauncherRunStatus
+    let updatedAt: Date
+    let message: String
+}
+
 enum IntegrationHealthBadgeStatus: String, Equatable, Codable {
     case healthy
     case warning

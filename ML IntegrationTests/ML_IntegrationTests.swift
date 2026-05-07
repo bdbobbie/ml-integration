@@ -2105,6 +2105,8 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(mockExecutor.executedScriptPaths.count, 1)
         XCTAssertEqual(mockExecutor.executedScriptPaths.first, launcherEntry.scriptPath)
         XCTAssertTrue(viewModel.integrationStatusMessage.contains("Launched \(launcherEntry.name)"))
+        XCTAssertEqual(viewModel.launcherRunState(for: vmID)?.launcherName, launcherEntry.name)
+        XCTAssertEqual(viewModel.launcherRunState(for: vmID)?.status, .succeeded)
         XCTAssertEqual(viewModel.fleetDiagnostic(for: vmID)?.lastErrorMessage, nil)
     }
 
@@ -2207,6 +2209,7 @@ final class ML_IntegrationTests: XCTestCase {
 
         XCTAssertEqual(mockExecutor.executedScriptPaths.count, 2)
         XCTAssertTrue(viewModel.integrationStatusMessage.contains("recovered on retry 2/2"))
+        XCTAssertEqual(viewModel.launcherRunState(for: vmID)?.status, .succeeded)
         XCTAssertEqual(viewModel.fleetDiagnostic(for: vmID)?.lastErrorMessage, nil)
     }
 
@@ -2260,6 +2263,7 @@ final class ML_IntegrationTests: XCTestCase {
 
         XCTAssertEqual(mockExecutor.executedScriptPaths.count, 2)
         XCTAssertTrue(viewModel.integrationStatusMessage.contains("after 2 attempt(s)"))
+        XCTAssertEqual(viewModel.launcherRunState(for: vmID)?.status, .failed)
         XCTAssertNotNil(viewModel.fleetDiagnostic(for: vmID)?.lastErrorMessage)
     }
 

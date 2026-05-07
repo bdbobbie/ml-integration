@@ -1874,6 +1874,7 @@ struct ContentView: View {
                                 let diagnostic = runtimeWorkbench.fleetDiagnostic(for: entry.id)
                                 let integrationCaps = runtimeWorkbench.integrationCapabilities(for: entry.id)
                                 let healthBadge = runtimeWorkbench.integrationHealthBadge(for: entry.id)
+                                let launcherRunState = runtimeWorkbench.launcherRunState(for: entry.id)
                                 HStack(spacing: 10) {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("\(entry.distribution.rawValue) • \(entry.vmName)")
@@ -1911,6 +1912,18 @@ struct ContentView: View {
                                             .padding(.vertical, 2)
                                             .background(integrationHealthBadgeColor(healthBadge.status))
                                             .clipShape(Capsule())
+                                        if let launcherRunState {
+                                            Text(
+                                                "Launcher \(launcherRunState.launcherName): \(launcherRunState.status.rawValue) @ " +
+                                                "\(launcherRunState.updatedAt.formatted(date: .omitted, time: .standard))"
+                                            )
+                                            .font(.caption2)
+                                            .foregroundColor(
+                                                launcherRunState.status == .succeeded ? .green :
+                                                    (launcherRunState.status == .failed ? .red : .secondary)
+                                            )
+                                            .lineLimit(1)
+                                        }
                                     }
                                     Spacer()
                                     Button("Start") {
