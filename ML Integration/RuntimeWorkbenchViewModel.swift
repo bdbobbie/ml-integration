@@ -81,6 +81,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var deviceMicDiagnostic: String = ""
     @Published private(set) var deviceCameraDiagnostic: String = ""
     @Published private(set) var deviceUSBDiagnostic: String = ""
+    @Published private(set) var evaluateInjectedDeviceFaults: Bool = true
     @Published private(set) var audioInputEnabled: Bool = true
     @Published private(set) var micInputEnabled: Bool = true
     @Published private(set) var cameraInputEnabled: Bool = true
@@ -2432,6 +2433,23 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         )
     }
 
+    var activeDeviceFaults: [String] {
+        var faults: [String] = []
+        if deviceAudioDiagnostic.hasPrefix("fault:") {
+            faults.append("Audio \(deviceAudioDiagnostic)")
+        }
+        if deviceMicDiagnostic.hasPrefix("fault:") {
+            faults.append("Mic \(deviceMicDiagnostic)")
+        }
+        if deviceCameraDiagnostic.hasPrefix("fault:") {
+            faults.append("Camera \(deviceCameraDiagnostic)")
+        }
+        if deviceUSBDiagnostic.hasPrefix("fault:") {
+            faults.append("USB \(deviceUSBDiagnostic)")
+        }
+        return faults
+    }
+
     func setDeviceMediaInputs(audioEnabled: Bool, micEnabled: Bool, cameraEnabled: Bool) {
         audioInputEnabled = audioEnabled
         micInputEnabled = micEnabled
@@ -2470,6 +2488,44 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         } else {
             deviceMediaStatusSummary = "Device/media toggles updated. Run assessment to refresh readiness."
         }
+    }
+
+    func resetInjectedDeviceFaultDiagnostics() {
+        evaluateInjectedDeviceFaults = false
+        let baselineReady: Bool
+        if let profile = hostProfile {
+            baselineReady = VZVirtualMachine.isSupported && profile.cpuCores >= 4 && profile.memoryGB >= 8
+        } else {
+            baselineReady = false
+        }
+        deviceAudioReady = baselineReady && audioInputEnabled
+        deviceMicReady = baselineReady && micInputEnabled
+        deviceCameraReady = baselineReady && cameraInputEnabled
+        deviceAudioDiagnostic = deviceDiagnosticLabel(
+            ready: deviceAudioReady,
+            toggleEnabled: audioInputEnabled,
+            baselineReady: baselineReady,
+            faultReason: nil
+        )
+        deviceMicDiagnostic = deviceDiagnosticLabel(
+            ready: deviceMicReady,
+            toggleEnabled: micInputEnabled,
+            baselineReady: baselineReady,
+            faultReason: nil
+        )
+        deviceCameraDiagnostic = deviceDiagnosticLabel(
+            ready: deviceCameraReady,
+            toggleEnabled: cameraInputEnabled,
+            baselineReady: baselineReady,
+            faultReason: nil
+        )
+        deviceUSBDiagnostic = deviceUSBReady ? "ready" : "pending"
+        deviceMediaStatusSummary = [
+            "Audio: \(deviceAudioDiagnostic)",
+            "Mic: \(deviceMicDiagnostic)",
+            "Camera: \(deviceCameraDiagnostic)",
+            "USB: \(deviceUSBDiagnostic)"
+        ].joined(separator: " | ")
     }
 
     func selectUSBDevice(_ id: String?) {
@@ -2526,6 +2582,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     private func injectedFaultReason(for environmentKey: String) -> String? {
+        guard evaluateInjectedDeviceFaults else { return nil }
         let raw = ProcessInfo.processInfo.environment[environmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let raw, !raw.isEmpty else { return nil }
         return raw

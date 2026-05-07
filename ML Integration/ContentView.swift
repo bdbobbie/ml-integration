@@ -2191,6 +2191,25 @@ struct ContentView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 
+                            if !runtimeWorkbench.activeDeviceFaults.isEmpty {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Device Faults")
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                    ForEach(Array(runtimeWorkbench.activeDeviceFaults.enumerated()), id: \.offset) { _, fault in
+                                        Text("• \(fault)")
+                                            .font(.caption2)
+                                            .foregroundColor(.red)
+                                    }
+                                    Button("Reset Injected Fault Diagnostics") {
+                                        runtimeWorkbench.resetInjectedDeviceFaultDiagnostics()
+                                        presentInfo("Injected device fault diagnostics reset for this session.")
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+                                }
+                            }
+
                             VStack(alignment: .leading, spacing: 4) {
                                 coherenceFlagRow(title: "Audio", ready: runtimeWorkbench.deviceAudioReady)
                                 coherenceFlagRow(title: "Mic", ready: runtimeWorkbench.deviceMicReady)

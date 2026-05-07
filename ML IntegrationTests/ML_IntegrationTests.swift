@@ -898,6 +898,62 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testActiveDeviceFaultsEnumeratesCurrentFaultDiagnostics() async {
+        let audioKey = RuntimeEnvironment.faultAudioReasonVariable
+        let previousAudio = getenv(audioKey).map { String(cString: $0) }
+        setenv(audioKey, "permission denied", 1)
+        defer {
+            if let previousAudio { setenv(audioKey, previousAudio, 1) } else { unsetenv(audioKey) }
+        }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await viewModel.assessDeviceMediaReadiness()
+
+        XCTAssertFalse(viewModel.activeDeviceFaults.isEmpty)
+        XCTAssertTrue(viewModel.activeDeviceFaults.contains(where: { $0.contains("Audio fault: permission denied") }))
+    }
+
+    @MainActor
+    func testResetInjectedDeviceFaultDiagnosticsClearsFaultStates() async {
+        let audioKey = RuntimeEnvironment.faultAudioReasonVariable
+        let previousAudio = getenv(audioKey).map { String(cString: $0) }
+        setenv(audioKey, "permission denied", 1)
+        defer {
+            if let previousAudio { setenv(audioKey, previousAudio, 1) } else { unsetenv(audioKey) }
+        }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await viewModel.assessDeviceMediaReadiness()
+        XCTAssertFalse(viewModel.deviceAudioReady)
+        XCTAssertTrue(viewModel.deviceAudioDiagnostic.hasPrefix("fault:"))
+
+        viewModel.resetInjectedDeviceFaultDiagnostics()
+
+        XCTAssertFalse(viewModel.evaluateInjectedDeviceFaults)
+        XCTAssertTrue(viewModel.deviceAudioReady)
+        XCTAssertEqual(viewModel.deviceAudioDiagnostic, "ready")
+        XCTAssertTrue(viewModel.activeDeviceFaults.isEmpty)
+    }
+
+    @MainActor
     func testAssessDeviceMediaReadinessDiscoversUSBDevicesOnCapableHost() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
