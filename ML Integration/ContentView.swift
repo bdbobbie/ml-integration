@@ -502,6 +502,9 @@ struct ContentView: View {
                             }
                         }
 
+                        // Linux App Onboarding Section (Step 3)
+                        linuxAppOnboardingSectionView
+
                         // Live Preflight Section
                         Section {
                             VStack(alignment: .leading, spacing: 12) {
@@ -724,6 +727,7 @@ struct ContentView: View {
             phaseSweepReady: runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting(),
             phase2DisplayReady: readiness.displayV2Ready
         )
+        syncLinuxAppOnboardingDeliveryAction()
     }
 
     private var environmentTestingGateReady: Bool {
@@ -736,6 +740,115 @@ struct ContentView: View {
         runtimeWorkbench.environmentTestingGateSummary(
             plannerReady: blueprintPlanner.isReadyForEnvironmentTesting
         )
+    }
+
+    private struct OnboardingChecklistItem: Identifiable {
+        let id: String
+        let title: String
+        let isDone: Bool
+    }
+
+    private var onboardingVMID: UUID? {
+        selectedInstalledVMID ?? runtimeWorkbench.activeVMID ?? runtimeWorkbench.lastManagedVMID
+    }
+
+    private var onboardingHasInstaller: Bool {
+        hasInstallSource(for: selectedCatalogDistribution)
+    }
+
+    private var onboardingScaffoldReady: Bool {
+        runtimeWorkbench.installLifecycleState == .ready && onboardingVMID != nil
+    }
+
+    private var onboardingVMRunning: Bool {
+        guard let vmID = onboardingVMID else { return false }
+        return runtimeWorkbench.runtimeState(for: vmID) == .running
+    }
+
+    private var onboardingIntegrationReady: Bool {
+        guard let vmID = onboardingVMID else { return false }
+        let capabilities = runtimeWorkbench.integrationCapabilities(for: vmID)
+        return capabilities.sharedFoldersConfigured &&
+            capabilities.clipboardSyncEnabled &&
+            !capabilities.launcherEntries.isEmpty
+    }
+
+    private var onboardingLauncherSuccess: Bool {
+        guard let vmID = onboardingVMID,
+              let state = runtimeWorkbench.launcherRunState(for: vmID) else {
+            return false
+        }
+        return state.status == .succeeded
+    }
+
+    private var onboardingChecklistItems: [OnboardingChecklistItem] {
+        [
+            OnboardingChecklistItem(id: "installer", title: "Installer selected/downloaded", isDone: onboardingHasInstaller),
+            OnboardingChecklistItem(id: "scaffold", title: "VM scaffold created", isDone: onboardingScaffoldReady),
+            OnboardingChecklistItem(id: "runtime", title: "VM runtime is running", isDone: onboardingVMRunning),
+            OnboardingChecklistItem(id: "integration", title: "Shared folders + clipboard + launcher configured", isDone: onboardingIntegrationReady),
+            OnboardingChecklistItem(id: "launch", title: "At least one launcher execution succeeded", isDone: onboardingLauncherSuccess)
+        ]
+    }
+
+    private var onboardingReadyForCompletion: Bool {
+        onboardingChecklistItems.allSatisfy(\.isDone)
+    }
+
+    private var onboardingInProgress: Bool {
+        onboardingChecklistItems.contains(where: \.isDone) && !onboardingReadyForCompletion
+    }
+
+    @MainActor
+    private func syncLinuxAppOnboardingDeliveryAction() {
+        let status: DeliveryActionStatus
+        if onboardingReadyForCompletion {
+            status = .complete
+        } else if onboardingInProgress {
+            status = .inProgress
+        } else {
+            status = .pending
+        }
+        blueprintPlanner.setDeliveryActionStatus(id: "linux-app-onboarding", to: status)
+    }
+
+    private var linuxAppOnboardingSectionView: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Linux App Onboarding (Step 3)")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+
+                Text("Guided path for install, run, and launcher validation.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(onboardingChecklistItems) { item in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(item.isDone ? "✓" : "○")
+                                .foregroundColor(item.isDone ? .green : .orange)
+                            Text(item.title)
+                                .font(.caption)
+                        }
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Button("Mark Onboarding Complete") {
+                        _ = blueprintPlanner.completeDeliveryAction(id: "linux-app-onboarding")
+                    }
+                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                    .disabled(!onboardingReadyForCompletion)
+
+                    Button("Mark Onboarding Pending") {
+                        _ = blueprintPlanner.resetDeliveryActionToPending(id: "linux-app-onboarding")
+                    }
+                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                }
+            }
+            .modifier(GlassCardStyle(borderColor: sectionBorderColor))
+        }
     }
 
     private var deliveryActionItemsView: some View {
