@@ -101,6 +101,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var integrationCapabilitiesByVMID: [UUID: VMIntegrationCapabilities] = [:]
     @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
     @Published private(set) var lastIntegrationRemediationReportPath: String = ""
+    @Published private(set) var lastIntegrationRemediationReportSummary: String = ""
 
     @Published private(set) var downloadStatusMessage: String = ""
     @Published private(set) var downloadedInstallerPath: String = ""
@@ -1290,6 +1291,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         guard !targets.isEmpty else {
             integrationStatusMessage = "No warning/error VMs require remediation."
             lastIntegrationRemediationReportPath = ""
+            lastIntegrationRemediationReportSummary = ""
             return
         }
 
@@ -1331,8 +1333,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             )
             let path = try writeIntegrationRemediationRunReport(report)
             lastIntegrationRemediationReportPath = path
+            lastIntegrationRemediationReportSummary =
+                "Attempted: \(report.attemptedCount) | Fixed: \(report.fixedCount) | Remaining: \(report.remainingCount)"
         } catch {
             lastIntegrationRemediationReportPath = ""
+            lastIntegrationRemediationReportSummary = ""
         }
 
         if remainingCount == 0 {
@@ -1469,6 +1474,23 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         let data = try encoder.encode(report)
         try data.write(to: fileURL, options: [.atomic])
         return fileURL.path
+    }
+
+    func reloadLastIntegrationRemediationReportSummary() {
+        guard !lastIntegrationRemediationReportPath.isEmpty else {
+            lastIntegrationRemediationReportSummary = ""
+            return
+        }
+        let url = URL(fileURLWithPath: lastIntegrationRemediationReportPath)
+        guard
+            let data = try? Data(contentsOf: url),
+            let report = try? JSONDecoder().decode(IntegrationRemediationRunReport.self, from: data)
+        else {
+            lastIntegrationRemediationReportSummary = "Last remediation report could not be loaded."
+            return
+        }
+        lastIntegrationRemediationReportSummary =
+            "Attempted: \(report.attemptedCount) | Fixed: \(report.fixedCount) | Remaining: \(report.remainingCount)"
     }
 
     func escalateToDevelopers(

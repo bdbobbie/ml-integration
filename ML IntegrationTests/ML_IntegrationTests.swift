@@ -2563,6 +2563,8 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(report.fixedCount, 2)
         XCTAssertEqual(report.remainingCount, 0)
         XCTAssertEqual(report.vmResults.count, 2)
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Attempted: 2"))
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Fixed: 2"))
     }
 
     @MainActor
@@ -2606,6 +2608,50 @@ final class ML_IntegrationTests: XCTestCase {
         await viewModel.fixAllIntegrationWarnings()
         XCTAssertEqual(viewModel.integrationStatusMessage, "No warning/error VMs require remediation.")
         XCTAssertTrue(viewModel.lastIntegrationRemediationReportPath.isEmpty)
+    }
+
+    @MainActor
+    func testReloadLastIntegrationRemediationReportSummaryReadsSavedReport() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-remediation-summary-reload-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-reload-summary",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        await viewModel.configureSharedResources()
+        await viewModel.fixAllIntegrationWarnings()
+        XCTAssertFalse(viewModel.lastIntegrationRemediationReportPath.isEmpty)
+
+        // Clear and force reload from disk.
+        viewModel.reloadLastIntegrationRemediationReportSummary()
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Attempted:"))
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Fixed:"))
     }
 
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {

@@ -1696,6 +1696,15 @@ struct ContentView: View {
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                                     .textSelection(.enabled)
+                                if !runtimeWorkbench.lastIntegrationRemediationReportSummary.isEmpty {
+                                    Text(runtimeWorkbench.lastIntegrationRemediationReportSummary)
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                Button("Refresh Report Summary") {
+                                    runtimeWorkbench.reloadLastIntegrationRemediationReportSummary()
+                                }
+                                .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             }
 
                             ForEach(runtimeWorkbench.fleetEntries(filteredBy: runtimeFleetFilter)) { entry in
