@@ -100,6 +100,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var fleetDiagnosticsByVMID: [UUID: FleetRuntimeDiagnostic] = [:]
     @Published private(set) var integrationCapabilitiesByVMID: [UUID: VMIntegrationCapabilities] = [:]
     @Published private(set) var launcherRunStateByVMID: [UUID: LauncherRunState] = [:]
+    @Published private(set) var launcherRunHistoryByVMID: [UUID: [LauncherRunState]] = [:]
     @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
     @Published private(set) var lastIntegrationRemediationReportPath: String = ""
     @Published private(set) var lastIntegrationRemediationReportSummary: String = ""
@@ -164,6 +165,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private var activeInstallStartDate: Date?
     private let integrationRemediationDeletionTimeoutOptions: [Int] = [10, 30, 60]
     private let launcherExecutionMaxAttempts = 2
+    private let launcherRunHistoryLimitPerVM = 10
 
     private struct IntegrationRemediationDeletionSafetyPreferences: Codable {
         let requireArming: Bool
@@ -213,6 +215,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             await MainActor.run {
                 self.refreshDownloadedInstallerPresence()
                 self.loadCustomCatalogEntries()
+                self.loadLauncherRunHistory()
             }
         }
     }
@@ -1276,6 +1279,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         launcherRunStateByVMID[vmID]
     }
 
+    func launcherRunHistory(for vmID: UUID) -> [LauncherRunState] {
+        launcherRunHistoryByVMID[vmID] ?? []
+    }
+
     func integrationHealthBadge(for vmID: UUID) -> (status: IntegrationHealthBadgeStatus, summary: String) {
         syncIntegrationCapabilities(for: vmID)
         let capabilities = integrationCapabilities(for: vmID)
@@ -1393,12 +1400,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
         guard FileManager.default.fileExists(atPath: launcherEntry.scriptPath) else {
             integrationStatusMessage = "Launcher script is missing for \(launcherEntry.name)."
-            launcherRunStateByVMID[vmID] = LauncherRunState(
+            recordLauncherRunState(vmID: vmID, state: LauncherRunState(
                 launcherName: launcherEntry.name,
                 status: .failed,
                 updatedAt: Date(),
                 message: integrationStatusMessage
-            )
+            ))
             fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
                 lastAction: "launcher-\(launcherEntry.name)",
                 lastActionAt: Date(),
@@ -1406,12 +1413,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             )
             return
         }
-        launcherRunStateByVMID[vmID] = LauncherRunState(
+        recordLauncherRunState(vmID: vmID, state: LauncherRunState(
             launcherName: launcherEntry.name,
             status: .running,
             updatedAt: Date(),
             message: "Launching \(launcherEntry.name)..."
-        )
+        ))
         for attempt in 1...launcherExecutionMaxAttempts {
             do {
                 let output = try await launcherExecutor.executeScript(atPath: launcherEntry.scriptPath)
@@ -1419,12 +1426,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 let retrySuffix = attempt > 1 ? " (recovered on retry \(attempt)/\(launcherExecutionMaxAttempts))" : ""
                 integrationStatusMessage =
                     "Launched \(launcherEntry.name) for VM \(vmID.uuidString).\(outputSuffix)\(retrySuffix)"
-                launcherRunStateByVMID[vmID] = LauncherRunState(
+                recordLauncherRunState(vmID: vmID, state: LauncherRunState(
                     launcherName: launcherEntry.name,
                     status: .succeeded,
                     updatedAt: Date(),
                     message: integrationStatusMessage
-                )
+                ))
                 fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
                     lastAction: "launcher-\(launcherEntry.name)",
                     lastActionAt: Date(),
@@ -1435,12 +1442,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 if attempt == launcherExecutionMaxAttempts {
                     integrationStatusMessage =
                         "Launcher execution failed for \(launcherEntry.name) after \(launcherExecutionMaxAttempts) attempt(s): \(error.localizedDescription)"
-                    launcherRunStateByVMID[vmID] = LauncherRunState(
+                    recordLauncherRunState(vmID: vmID, state: LauncherRunState(
                         launcherName: launcherEntry.name,
                         status: .failed,
                         updatedAt: Date(),
                         message: integrationStatusMessage
-                    )
+                    ))
                     fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
                         lastAction: "launcher-\(launcherEntry.name)",
                         lastActionAt: Date(),
@@ -2476,6 +2483,70 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             return nil
         }
         return try? JSONDecoder().decode(RuntimeSessionSnapshot.self, from: data)
+    }
+
+    private func launcherRunHistoryFileURL() -> URL {
+        baseDirectory().appendingPathComponent("launcher-run-history.json", isDirectory: false)
+    }
+
+    private func recordLauncherRunState(vmID: UUID, state: LauncherRunState) {
+        launcherRunStateByVMID[vmID] = state
+        var entries = launcherRunHistoryByVMID[vmID] ?? []
+        entries.insert(state, at: 0)
+        if entries.count > launcherRunHistoryLimitPerVM {
+            entries = Array(entries.prefix(launcherRunHistoryLimitPerVM))
+        }
+        launcherRunHistoryByVMID[vmID] = entries
+        persistLauncherRunHistory()
+    }
+
+    private func persistLauncherRunHistory() {
+        let formatter = ISO8601DateFormatter()
+        let serializable = launcherRunHistoryByVMID.mapValues { states in
+            states.map { state in
+                PersistedLauncherRunState(
+                    launcherName: state.launcherName,
+                    statusRaw: state.status.rawValue,
+                    updatedAtISO8601: formatter.string(from: state.updatedAt),
+                    message: state.message
+                )
+            }
+        }
+        do {
+            let data = try JSONEncoder().encode(serializable)
+            try data.write(to: launcherRunHistoryFileURL(), options: [.atomic])
+        } catch {
+            integrationStatusMessage = "Launcher history persistence failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func loadLauncherRunHistory() {
+        let url = launcherRunHistoryFileURL()
+        guard let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode([UUID: [PersistedLauncherRunState]].self, from: data) else {
+            return
+        }
+        let formatter = ISO8601DateFormatter()
+        var mapped: [UUID: [LauncherRunState]] = [:]
+        for (vmID, states) in decoded {
+            let converted = states.compactMap { state -> LauncherRunState? in
+                guard let status = LauncherRunStatus(rawValue: state.statusRaw),
+                      let date = formatter.date(from: state.updatedAtISO8601) else {
+                    return nil
+                }
+                return LauncherRunState(
+                    launcherName: state.launcherName,
+                    status: status,
+                    updatedAt: date,
+                    message: state.message
+                )
+            }
+            if !converted.isEmpty {
+                mapped[vmID] = Array(converted.prefix(launcherRunHistoryLimitPerVM))
+            }
+        }
+        launcherRunHistoryByVMID = mapped
+        launcherRunStateByVMID = mapped.compactMapValues { $0.first }
     }
 
     @discardableResult

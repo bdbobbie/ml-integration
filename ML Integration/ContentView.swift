@@ -1923,6 +1923,12 @@ struct ContentView: View {
                                                     (launcherRunState.status == .failed ? .red : .secondary)
                                             )
                                             .lineLimit(1)
+                                            let launcherHistory = runtimeWorkbench.launcherRunHistory(for: entry.id)
+                                            if launcherHistory.count > 1 {
+                                                Text("Launcher history entries: \(launcherHistory.count)")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
+                                            }
                                         }
                                     }
                                     Spacer()

@@ -218,6 +218,13 @@ struct LauncherRunState: Equatable {
     let message: String
 }
 
+struct PersistedLauncherRunState: Codable, Equatable {
+    let launcherName: String
+    let statusRaw: String
+    let updatedAtISO8601: String
+    let message: String
+}
+
 enum IntegrationHealthBadgeStatus: String, Equatable, Codable {
     case healthy
     case warning
