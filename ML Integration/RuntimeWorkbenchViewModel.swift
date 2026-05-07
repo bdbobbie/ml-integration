@@ -109,6 +109,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var integrationRemediationHistoryDeleteStatusMessage: String = ""
     @Published private(set) var integrationRemediationDeletionArmed: Bool = false
     @Published private(set) var integrationRemediationDeletionSecondsRemaining: Int = 0
+    @Published private(set) var integrationRemediationRequireArming: Bool = true
+    @Published private(set) var integrationRemediationDeletionTimeoutSeconds: Int = 30
     private let remediationHistoryRetentionLimit: Int = 25
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -150,7 +152,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private let registry: VMRegistryManaging
     private let observability: RuntimeObservabilityLogging
     private let launcherExecutor: LauncherScriptExecuting
-    private let deletionArmDurationSeconds: Int
+    private var deletionArmDurationSeconds: Int
     private var integrationRemediationDeletionCountdownTask: Task<Void, Never>?
 
     private var lastCatalogRefresh: Date?
@@ -158,6 +160,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private var cachedArtifacts: [HostArchitecture: [DistributionArtifact]] = [:]
     private var activeDownloadStartDate: Date?
     private var activeInstallStartDate: Date?
+    private let integrationRemediationDeletionTimeoutOptions: [Int] = [10, 30, 60]
+
+    private struct IntegrationRemediationDeletionSafetyPreferences: Codable {
+        let requireArming: Bool
+        let timeoutSeconds: Int
+    }
 
     init(
         hostService: HostProfileService? = nil,
@@ -171,7 +179,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         registry: VMRegistryManaging? = nil,
         observability: RuntimeObservabilityLogging? = nil,
         launcherExecutor: LauncherScriptExecuting? = nil,
-        deletionArmDurationSeconds: Int = 30
+        deletionArmDurationSeconds: Int = 30,
+        integrationRemediationRequireArming: Bool = true
     ) {
         self.hostService = hostService ?? DefaultHostProfileService()
         self.catalogService = catalogService ?? OfficialDistributionCatalogService()
@@ -188,6 +197,9 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         self.observability = observability ?? FileRuntimeObservabilityStore()
         self.launcherExecutor = launcherExecutor ?? ProcessLauncherScriptExecutor()
         self.deletionArmDurationSeconds = max(1, deletionArmDurationSeconds)
+        self.integrationRemediationRequireArming = integrationRemediationRequireArming
+        self.integrationRemediationDeletionTimeoutSeconds = max(1, deletionArmDurationSeconds)
+        loadIntegrationRemediationDeletionSafetyPreferences()
 
         traceVM("Build marker: VM-LAUNCH-DIAG-2026-04-23T00:00Z")
         Task {
@@ -1516,7 +1528,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             integrationRemediationReportHistory = []
             return
         }
-        let entries = fileURLs
+        var entries = fileURLs
             .filter { $0.pathExtension.lowercased() == "json" }
             .map { url in
                 let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
@@ -1647,6 +1659,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     func armIntegrationRemediationDeletion() {
+        guard integrationRemediationRequireArming else {
+            integrationRemediationDeletionArmed = false
+            integrationRemediationDeletionSecondsRemaining = 0
+            integrationRemediationHistoryDeleteStatusMessage = "Arming is disabled by preference."
+            return
+        }
         integrationRemediationDeletionArmed = true
         integrationRemediationDeletionSecondsRemaining = deletionArmDurationSeconds
         integrationRemediationHistoryDeleteStatusMessage =
@@ -1662,7 +1680,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     func confirmDeleteIntegrationRemediationReport(atPath path: String) {
-        guard integrationRemediationDeletionArmed else {
+        guard !integrationRemediationRequireArming || integrationRemediationDeletionArmed else {
             integrationRemediationHistoryDeleteStatusMessage = "Deletion blocked. Arm deletion first."
             return
         }
@@ -1671,12 +1689,30 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     func confirmDeleteMalformedIntegrationRemediationReports() {
-        guard integrationRemediationDeletionArmed else {
+        guard !integrationRemediationRequireArming || integrationRemediationDeletionArmed else {
             integrationRemediationHistoryDeleteStatusMessage = "Deletion blocked. Arm deletion first."
             return
         }
         deleteMalformedIntegrationRemediationReports()
         disarmIntegrationRemediationDeletion()
+    }
+
+    func configureIntegrationRemediationDeletionSafety(requireArming: Bool, timeoutSeconds: Int) {
+        integrationRemediationRequireArming = requireArming
+        deletionArmDurationSeconds = max(1, timeoutSeconds)
+        integrationRemediationDeletionTimeoutSeconds = deletionArmDurationSeconds
+        if !requireArming {
+            disarmIntegrationRemediationDeletion()
+        }
+        persistIntegrationRemediationDeletionSafetyPreferences()
+    }
+
+    func setIntegrationRemediationDeletionTimeout(seconds: Int) {
+        let normalized = normalizeIntegrationRemediationDeletionTimeout(seconds)
+        configureIntegrationRemediationDeletionSafety(
+            requireArming: integrationRemediationRequireArming,
+            timeoutSeconds: normalized
+        )
     }
 
     private func startIntegrationRemediationDeletionCountdown() {
@@ -1692,6 +1728,47 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 self.integrationRemediationDeletionArmed = false
                 self.integrationRemediationHistoryDeleteStatusMessage = "Deletion arm expired."
             }
+        }
+    }
+
+    private func integrationRemediationDeletionSafetyPreferencesURL() -> URL {
+        baseDirectory().appendingPathComponent("integration-remediation-deletion-safety.json")
+    }
+
+    private func normalizeIntegrationRemediationDeletionTimeout(_ seconds: Int) -> Int {
+        if integrationRemediationDeletionTimeoutOptions.contains(seconds) {
+            return seconds
+        }
+        let fallback = integrationRemediationDeletionTimeoutOptions.first ?? 30
+        return integrationRemediationDeletionTimeoutOptions.min(by: { abs($0 - seconds) < abs($1 - seconds) }) ?? fallback
+    }
+
+    private func loadIntegrationRemediationDeletionSafetyPreferences() {
+        let url = integrationRemediationDeletionSafetyPreferencesURL()
+        guard let data = try? Data(contentsOf: url) else { return }
+        guard let preferences = try? JSONDecoder().decode(IntegrationRemediationDeletionSafetyPreferences.self, from: data) else {
+            return
+        }
+        let timeout = normalizeIntegrationRemediationDeletionTimeout(preferences.timeoutSeconds)
+        integrationRemediationRequireArming = preferences.requireArming
+        deletionArmDurationSeconds = timeout
+        integrationRemediationDeletionTimeoutSeconds = timeout
+        if !preferences.requireArming {
+            disarmIntegrationRemediationDeletion()
+        }
+    }
+
+    private func persistIntegrationRemediationDeletionSafetyPreferences() {
+        let preferences = IntegrationRemediationDeletionSafetyPreferences(
+            requireArming: integrationRemediationRequireArming,
+            timeoutSeconds: integrationRemediationDeletionTimeoutSeconds
+        )
+        do {
+            let data = try JSONEncoder().encode(preferences)
+            try data.write(to: integrationRemediationDeletionSafetyPreferencesURL(), options: [.atomic])
+        } catch {
+            integrationRemediationHistoryDeleteStatusMessage =
+                "Failed to persist deletion safety preferences: \(error.localizedDescription)"
         }
     }
 

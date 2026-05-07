@@ -3479,6 +3479,62 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(viewModel.integrationRemediationDeletionSecondsRemaining, 0)
     }
 
+    @MainActor
+    func testIntegrationRemediationDeletionSafetyPreferencesPersistAcrossViewModels() {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-delete-safety-prefs-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let first = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        first.configureIntegrationRemediationDeletionSafety(requireArming: false, timeoutSeconds: 60)
+
+        let second = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        XCTAssertFalse(second.integrationRemediationRequireArming)
+        XCTAssertEqual(second.integrationRemediationDeletionTimeoutSeconds, 60)
+    }
+
+    @MainActor
+    func testIntegrationRemediationDeletionTimeoutNormalizesToSupportedPresets() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        viewModel.setIntegrationRemediationDeletionTimeout(seconds: 44)
+        XCTAssertEqual(viewModel.integrationRemediationDeletionTimeoutSeconds, 30)
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

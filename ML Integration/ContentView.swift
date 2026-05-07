@@ -1740,6 +1740,35 @@ struct ContentView: View {
                                 Text("Remediation History")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+                                Toggle(
+                                    "Require Arm",
+                                    isOn: Binding(
+                                        get: { runtimeWorkbench.integrationRemediationRequireArming },
+                                        set: { isOn in
+                                            runtimeWorkbench.configureIntegrationRemediationDeletionSafety(
+                                                requireArming: isOn,
+                                                timeoutSeconds: runtimeWorkbench.integrationRemediationDeletionTimeoutSeconds
+                                            )
+                                        }
+                                    )
+                                )
+                                .font(.caption2)
+                                .toggleStyle(.switch)
+                                Picker(
+                                    "Delete Timeout",
+                                    selection: Binding(
+                                        get: { runtimeWorkbench.integrationRemediationDeletionTimeoutSeconds },
+                                        set: { seconds in
+                                            runtimeWorkbench.setIntegrationRemediationDeletionTimeout(seconds: seconds)
+                                        }
+                                    )
+                                ) {
+                                    Text("10s").tag(10)
+                                    Text("30s").tag(30)
+                                    Text("60s").tag(60)
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 220)
                                 Button("Refresh History") {
                                     runtimeWorkbench.refreshIntegrationRemediationReportHistory()
                                 }
