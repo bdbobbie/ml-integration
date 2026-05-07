@@ -369,6 +369,18 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testResetAllDeliveryActionsToPendingClearsProgress() {
+        let planner = BlueprintPlanner()
+        _ = planner.completeDeliveryAction(id: "linux-window-coherence")
+        _ = planner.completeDeliveryAction(id: "launcher-integration")
+        XCTAssertEqual(planner.deliveryActionProgressSummary, "2/9 delivery actions complete")
+
+        planner.resetAllDeliveryActionsToPending()
+        XCTAssertTrue(planner.deliveryActionItems.allSatisfy { $0.status == .pending })
+        XCTAssertEqual(planner.deliveryActionProgressSummary, "0/9 delivery actions complete")
+    }
+
+    @MainActor
     func testPhaseStateReportExportPersistsArtifact() throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

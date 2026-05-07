@@ -724,6 +724,11 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
 
+            Button("Reset All Delivery Actions") {
+                blueprintPlanner.resetAllDeliveryActionsToPending()
+            }
+            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(blueprintPlanner.deliveryActionItems) { item in
                     HStack(alignment: .top, spacing: 8) {

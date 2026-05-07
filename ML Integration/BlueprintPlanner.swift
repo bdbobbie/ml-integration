@@ -470,6 +470,12 @@ final class BlueprintPlanner: ObservableObject {
         return true
     }
 
+    func resetAllDeliveryActionsToPending() {
+        for index in deliveryActionItems.indices {
+            deliveryActionItems[index].status = .pending
+        }
+    }
+
     @discardableResult
     func exportPhaseStateReport() -> URL? {
         do {
