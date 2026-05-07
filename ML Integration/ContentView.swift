@@ -1744,6 +1744,11 @@ struct ContentView: View {
                                     runtimeWorkbench.refreshIntegrationRemediationReportHistory()
                                 }
                                 .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                Button("Cleanup Old Reports") {
+                                    runtimeWorkbench.cleanupIntegrationRemediationHistory(retainingNewest: 10)
+                                    presentInfo(runtimeWorkbench.integrationRemediationHistoryCleanupStatusMessage)
+                                }
+                                .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             }
 
                             TextField("Search report history", text: $remediationHistorySearchTerm)

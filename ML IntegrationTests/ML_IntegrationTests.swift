@@ -2994,6 +2994,97 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(viewModel.lastIntegrationRemediationReportResults.isEmpty)
     }
 
+    @MainActor
+    func testCleanupIntegrationRemediationHistoryRetainsNewestN() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-history-cleanup-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let reportsDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        for index in 0..<8 {
+            let report = IntegrationRemediationRunReport(
+                id: UUID(),
+                timestampISO8601: ISO8601DateFormatter().string(from: Date().addingTimeInterval(TimeInterval(index))),
+                attemptedCount: 1,
+                fixedCount: 1,
+                remainingCount: 0,
+                vmResults: []
+            )
+            let data = try encoder.encode(report)
+            let fileURL = reportsDirectory.appendingPathComponent(String(format: "cleanup-%02d.json", index))
+            try data.write(to: fileURL, options: [.atomic])
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(TimeInterval(index))], ofItemAtPath: fileURL.path)
+        }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        viewModel.cleanupIntegrationRemediationHistory(retainingNewest: 3)
+
+        XCTAssertEqual(viewModel.integrationRemediationReportHistory.count, 3)
+        XCTAssertTrue(viewModel.integrationRemediationHistoryCleanupStatusMessage.contains("Removed"))
+        XCTAssertTrue(viewModel.integrationRemediationHistoryCleanupStatusMessage.contains("Retained newest 3"))
+    }
+
+    @MainActor
+    func testCleanupIntegrationRemediationHistoryNoopWhenWithinRetention() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-history-cleanup-noop-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let reportsDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+        let report = IntegrationRemediationRunReport(
+            id: UUID(),
+            timestampISO8601: ISO8601DateFormatter().string(from: Date()),
+            attemptedCount: 1,
+            fixedCount: 1,
+            remainingCount: 0,
+            vmResults: []
+        )
+        try JSONEncoder().encode(report).write(
+            to: reportsDirectory.appendingPathComponent("noop.json"),
+            options: [.atomic]
+        )
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        viewModel.cleanupIntegrationRemediationHistory(retainingNewest: 3)
+        XCTAssertEqual(viewModel.integrationRemediationReportHistory.count, 1)
+        XCTAssertTrue(viewModel.integrationRemediationHistoryCleanupStatusMessage.contains("No cleanup needed"))
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

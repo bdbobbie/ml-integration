@@ -104,6 +104,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var lastIntegrationRemediationReportSummary: String = ""
     @Published private(set) var lastIntegrationRemediationReportResults: [IntegrationRemediationRunReport.VMResult] = []
     @Published private(set) var integrationRemediationReportHistory: [IntegrationRemediationReportHistoryEntry] = []
+    @Published private(set) var integrationRemediationHistoryCleanupStatusMessage: String = ""
     private let remediationHistoryRetentionLimit: Int = 25
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -1558,6 +1559,27 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             entries = entries.filter { ($0.remainingCount ?? 0) > 0 }
         }
         return entries.sorted { recentFirst ? ($0.modifiedAt > $1.modifiedAt) : ($0.modifiedAt < $1.modifiedAt) }
+    }
+
+    func cleanupIntegrationRemediationHistory(retainingNewest retainCount: Int) {
+        let safeRetainCount = max(0, retainCount)
+        refreshIntegrationRemediationReportHistory()
+        guard integrationRemediationReportHistory.count > safeRetainCount else {
+            integrationRemediationHistoryCleanupStatusMessage =
+                "No cleanup needed. History count (\(integrationRemediationReportHistory.count)) is within retention (\(safeRetainCount))."
+            return
+        }
+
+        let staleEntries = integrationRemediationReportHistory.dropFirst(safeRetainCount)
+        var removedCount = 0
+        for entry in staleEntries {
+            if (try? FileManager.default.removeItem(atPath: entry.path)) != nil {
+                removedCount += 1
+            }
+        }
+        refreshIntegrationRemediationReportHistory()
+        integrationRemediationHistoryCleanupStatusMessage =
+            "Removed \(removedCount) old remediation report(s). Retained newest \(safeRetainCount)."
     }
 
     func integrationRemediationReportsDirectoryURL() -> URL {
