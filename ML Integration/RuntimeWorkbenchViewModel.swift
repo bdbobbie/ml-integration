@@ -1364,10 +1364,14 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     func phaseReadinessSummary(prefix: String = "Phase readiness") -> String {
         let readiness = currentPhaseReadiness()
-        return
+        var summary =
             "\(prefix) | Coherence: \(readiness.coherenceReady ? "ready" : "pending") | " +
             "Device/Media: \(readiness.deviceMediaReady ? "ready" : "pending") | " +
             "Display v2: \(readiness.displayV2Ready ? "ready" : "pending")"
+        if coherenceWindowPolicySchemaInvalid {
+            summary += " | Coherence policy schema: invalid"
+        }
+        return summary
     }
 
     func isPhaseSweepReadyForEnvironmentTesting() -> Bool {
@@ -1378,7 +1382,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     func environmentTestingGateSummary(plannerReady: Bool) -> String {
         let plannerStatus = plannerReady ? "ready" : "pending"
         let phaseStatus = isPhaseSweepReadyForEnvironmentTesting() ? "ready" : "pending"
-        return "Environment testing gate | Planner: \(plannerStatus) | Phase sweep: \(phaseStatus)"
+        var summary = "Environment testing gate | Planner: \(plannerStatus) | Phase sweep: \(phaseStatus)"
+        if coherenceWindowPolicySchemaInvalid {
+            summary += " | Blocker: coherence policy schema invalid"
+        }
+        return summary
     }
 
     func isEnvironmentTestingGateReady(plannerReady: Bool) -> Bool {

@@ -1096,6 +1096,45 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testPhaseAndGateSummariesIncludeSchemaInvalidBlocker() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let mockHealth = MockHealthService()
+        mockHealth.nextHealthReport = [
+            "OK: Window coherence policy exists",
+            "WARN: Window coherence policy schema invalid"
+        ]
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: mockHealth,
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-schema-blocker",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        await viewModel.runHealthCheck()
+
+        let phaseSummary = viewModel.phaseReadinessSummary(prefix: "Gate")
+        XCTAssertTrue(phaseSummary.contains("Coherence policy schema: invalid"))
+
+        let gateSummary = viewModel.environmentTestingGateSummary(plannerReady: true)
+        XCTAssertTrue(gateSummary.contains("Blocker: coherence policy schema invalid"))
+    }
+
+    @MainActor
     func testEnvironmentTestingGateReadyRequiresPlannerAndPhaseSweep() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }
