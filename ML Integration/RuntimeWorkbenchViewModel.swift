@@ -102,6 +102,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
     @Published private(set) var lastIntegrationRemediationReportPath: String = ""
     @Published private(set) var lastIntegrationRemediationReportSummary: String = ""
+    @Published private(set) var lastIntegrationRemediationReportResults: [IntegrationRemediationRunReport.VMResult] = []
     @Published private(set) var integrationRemediationReportHistory: [IntegrationRemediationReportHistoryEntry] = []
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -1293,6 +1294,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             integrationStatusMessage = "No warning/error VMs require remediation."
             lastIntegrationRemediationReportPath = ""
             lastIntegrationRemediationReportSummary = ""
+            lastIntegrationRemediationReportResults = []
             return
         }
 
@@ -1336,10 +1338,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             lastIntegrationRemediationReportPath = path
             lastIntegrationRemediationReportSummary =
                 "Attempted: \(report.attemptedCount) | Fixed: \(report.fixedCount) | Remaining: \(report.remainingCount)"
+            lastIntegrationRemediationReportResults = report.vmResults
             refreshIntegrationRemediationReportHistory()
         } catch {
             lastIntegrationRemediationReportPath = ""
             lastIntegrationRemediationReportSummary = ""
+            lastIntegrationRemediationReportResults = []
         }
 
         if remainingCount == 0 {
@@ -1481,6 +1485,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     func reloadLastIntegrationRemediationReportSummary() {
         guard !lastIntegrationRemediationReportPath.isEmpty else {
             lastIntegrationRemediationReportSummary = ""
+            lastIntegrationRemediationReportResults = []
             return
         }
         loadIntegrationRemediationReportSummary(fromPath: lastIntegrationRemediationReportPath)
@@ -1524,10 +1529,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             let report = try? JSONDecoder().decode(IntegrationRemediationRunReport.self, from: data)
         else {
             lastIntegrationRemediationReportSummary = "Last remediation report could not be loaded."
+            lastIntegrationRemediationReportResults = []
             return
         }
         lastIntegrationRemediationReportSummary =
             "Attempted: \(report.attemptedCount) | Fixed: \(report.fixedCount) | Remaining: \(report.remainingCount)"
+        lastIntegrationRemediationReportResults = report.vmResults
     }
 
     func escalateToDevelopers(

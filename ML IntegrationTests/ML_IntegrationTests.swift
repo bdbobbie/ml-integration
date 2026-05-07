@@ -2565,6 +2565,7 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(report.vmResults.count, 2)
         XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Attempted: 2"))
         XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Fixed: 2"))
+        XCTAssertEqual(viewModel.lastIntegrationRemediationReportResults.count, 2)
     }
 
     @MainActor
@@ -2608,6 +2609,7 @@ final class ML_IntegrationTests: XCTestCase {
         await viewModel.fixAllIntegrationWarnings()
         XCTAssertEqual(viewModel.integrationStatusMessage, "No warning/error VMs require remediation.")
         XCTAssertTrue(viewModel.lastIntegrationRemediationReportPath.isEmpty)
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportResults.isEmpty)
     }
 
     @MainActor
@@ -2744,6 +2746,25 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(viewModel.lastIntegrationRemediationReportPath, savedPath)
         XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Attempted:"))
         XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Remaining:"))
+        XCTAssertFalse(viewModel.lastIntegrationRemediationReportResults.isEmpty)
+    }
+
+    @MainActor
+    func testReloadLastIntegrationRemediationReportSummaryClearsResultsWhenNoPath() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        viewModel.reloadLastIntegrationRemediationReportSummary()
+        XCTAssertEqual(viewModel.lastIntegrationRemediationReportSummary, "")
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportResults.isEmpty)
     }
 
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {

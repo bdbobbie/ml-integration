@@ -1701,6 +1701,19 @@ struct ContentView: View {
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
                                 }
+                                ForEach(runtimeWorkbench.lastIntegrationRemediationReportResults, id: \.vmID) { vmResult in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(vmResult.vmName): \(vmResult.statusBefore.rawValue) → \(vmResult.statusAfter.rawValue)")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text("Before: \(vmResult.summaryBefore)")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Text("After: \(vmResult.summaryAfter)")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
                                 Button("Refresh Report Summary") {
                                     runtimeWorkbench.reloadLastIntegrationRemediationReportSummary()
                                 }
