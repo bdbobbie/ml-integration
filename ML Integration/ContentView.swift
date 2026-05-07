@@ -1729,6 +1729,19 @@ struct ContentView: View {
                                     Text("Share Selected Report")
                                 }
 
+                                Button("Import Report") {
+                                    let panel = NSOpenPanel()
+                                    panel.allowsMultipleSelection = false
+                                    panel.canChooseDirectories = false
+                                    panel.canChooseFiles = true
+                                    panel.allowedContentTypes = [.json]
+                                    if panel.runModal() == .OK, let selectedURL = panel.url {
+                                        runtimeWorkbench.importIntegrationRemediationReport(fromPath: selectedURL.path)
+                                        presentInfo(runtimeWorkbench.integrationRemediationHistoryDeleteStatusMessage)
+                                    }
+                                }
+                                .buttonStyle(RedTextWhiteOutlineButtonStyle())
+
                                 Button("Open Reports Folder") {
                                     let folderURL = runtimeWorkbench.integrationRemediationReportsDirectoryURL()
                                     _ = NSWorkspace.shared.open(folderURL)

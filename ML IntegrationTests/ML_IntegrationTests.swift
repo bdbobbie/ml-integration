@@ -2995,6 +2995,91 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testImportIntegrationRemediationReportCopiesValidReportIntoManagedFolder() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-import-report-valid-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let externalDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-import-external-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: externalDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: externalDirectory) }
+
+        let externalReportURL = externalDirectory.appendingPathComponent("external-valid.json")
+        let report = IntegrationRemediationRunReport(
+            id: UUID(),
+            timestampISO8601: ISO8601DateFormatter().string(from: Date()),
+            attemptedCount: 2,
+            fixedCount: 1,
+            remainingCount: 1,
+            vmResults: []
+        )
+        try JSONEncoder().encode(report).write(to: externalReportURL, options: [.atomic])
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        viewModel.importIntegrationRemediationReport(fromPath: externalReportURL.path)
+
+        XCTAssertTrue(viewModel.integrationRemediationHistoryDeleteStatusMessage.contains("Imported remediation report:"))
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportPath.contains("integration-remediation-reports"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: viewModel.lastIntegrationRemediationReportPath))
+        XCTAssertEqual(viewModel.lastIntegrationRemediationReportSummary, "Attempted: 2 | Fixed: 1 | Remaining: 1")
+    }
+
+    @MainActor
+    func testImportIntegrationRemediationReportBlocksMalformedJson() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-import-report-malformed-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let externalDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-import-external-malformed-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: externalDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: externalDirectory) }
+
+        let malformedURL = externalDirectory.appendingPathComponent("external-malformed.json")
+        try Data("{\"broken\":".utf8).write(to: malformedURL, options: [.atomic])
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        viewModel.importIntegrationRemediationReport(fromPath: malformedURL.path)
+
+        XCTAssertEqual(
+            viewModel.integrationRemediationHistoryDeleteStatusMessage,
+            "Import blocked. JSON does not match remediation report schema."
+        )
+        XCTAssertTrue(viewModel.integrationRemediationReportHistory.isEmpty)
+    }
+
+    @MainActor
     func testCleanupIntegrationRemediationHistoryRetainsNewestN() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

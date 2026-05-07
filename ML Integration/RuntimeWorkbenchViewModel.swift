@@ -1518,6 +1518,44 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         loadIntegrationRemediationReportSummary(fromPath: path)
     }
 
+    func importIntegrationRemediationReport(fromPath sourcePath: String) {
+        let sourceURL = URL(fileURLWithPath: sourcePath).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            integrationRemediationHistoryDeleteStatusMessage = "Import failed. Report file not found."
+            return
+        }
+        guard sourceURL.pathExtension.lowercased() == "json" else {
+            integrationRemediationHistoryDeleteStatusMessage = "Import failed. Only JSON remediation reports are allowed."
+            return
+        }
+        guard
+            let data = try? Data(contentsOf: sourceURL),
+            (try? JSONDecoder().decode(IntegrationRemediationRunReport.self, from: data)) != nil
+        else {
+            integrationRemediationHistoryDeleteStatusMessage = "Import blocked. JSON does not match remediation report schema."
+            return
+        }
+
+        let reportsDirectory = integrationRemediationReportsDirectoryURL()
+        try? FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+        let sourceName = sourceURL.deletingPathExtension().lastPathComponent
+        let sanitizedName = sourceName
+            .replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "-", options: .regularExpression)
+            .prefix(80)
+        let baseName = sanitizedName.isEmpty ? "imported-report" : String(sanitizedName)
+        let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let destinationURL = reportsDirectory.appendingPathComponent("\(baseName)-\(timestamp).json")
+
+        do {
+            try data.write(to: destinationURL, options: [.atomic])
+            loadIntegrationRemediationReport(atPath: destinationURL.path)
+            refreshIntegrationRemediationReportHistory()
+            integrationRemediationHistoryDeleteStatusMessage = "Imported remediation report: \(destinationURL.lastPathComponent)"
+        } catch {
+            integrationRemediationHistoryDeleteStatusMessage = "Import failed: \(error.localizedDescription)"
+        }
+    }
+
     func refreshIntegrationRemediationReportHistory() {
         let directory = integrationRemediationReportsDirectoryURL()
         guard let fileURLs = try? FileManager.default.contentsOfDirectory(
