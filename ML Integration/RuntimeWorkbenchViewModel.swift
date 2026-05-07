@@ -1612,6 +1612,34 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
     }
 
+    func deleteMalformedIntegrationRemediationReports() {
+        refreshIntegrationRemediationReportHistory()
+        let malformedEntries = integrationRemediationReportHistory.filter(\.isMalformed)
+        guard !malformedEntries.isEmpty else {
+            integrationRemediationHistoryDeleteStatusMessage = "No malformed remediation reports to delete."
+            return
+        }
+
+        var removedCount = 0
+        for entry in malformedEntries {
+            let candidateURL = URL(fileURLWithPath: entry.path).standardizedFileURL
+            let baseURL = integrationRemediationReportsDirectoryURL().standardizedFileURL
+            guard candidateURL.path.hasPrefix(baseURL.path + "/") || candidateURL.path == baseURL.path else {
+                continue
+            }
+            if (try? FileManager.default.removeItem(at: candidateURL)) != nil {
+                removedCount += 1
+                if lastIntegrationRemediationReportPath == candidateURL.path {
+                    lastIntegrationRemediationReportPath = ""
+                    lastIntegrationRemediationReportSummary = ""
+                    lastIntegrationRemediationReportResults = []
+                }
+            }
+        }
+        refreshIntegrationRemediationReportHistory()
+        integrationRemediationHistoryDeleteStatusMessage = "Deleted \(removedCount) malformed remediation report(s)."
+    }
+
     func integrationRemediationReportsDirectoryURL() -> URL {
         baseDirectory().appendingPathComponent("integration-remediation-reports", isDirectory: true)
     }

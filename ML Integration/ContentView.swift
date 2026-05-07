@@ -1749,6 +1749,11 @@ struct ContentView: View {
                                     presentInfo(runtimeWorkbench.integrationRemediationHistoryCleanupStatusMessage)
                                 }
                                 .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                Button("Delete Malformed") {
+                                    runtimeWorkbench.deleteMalformedIntegrationRemediationReports()
+                                    presentInfo(runtimeWorkbench.integrationRemediationHistoryDeleteStatusMessage)
+                                }
+                                .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             }
                             if runtimeWorkbench.malformedIntegrationRemediationReportCount > 0 {
                                 Text("Malformed reports detected: \(runtimeWorkbench.malformedIntegrationRemediationReportCount)")
