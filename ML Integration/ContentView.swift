@@ -90,6 +90,7 @@ struct ContentView: View {
     @State private var launcherHistoryStatusFilter: LauncherHistoryStatusFilter = .all
     @State private var launcherHistorySearchTerm: String = ""
     @State private var isOnboardingActionInProgress: Bool = false
+    @State private var onboardingActionStatusLines: [String] = []
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @AppStorage("visualStyleMode") private var visualStyleModeRaw: String = VisualStyleMode.nativeMac.rawValue
     @AppStorage("lightIntensity") private var lightIntensity: Double = 1.0
@@ -860,6 +861,16 @@ struct ContentView: View {
                 if isOnboardingActionInProgress {
                     ProgressView()
                 }
+
+                if !onboardingActionStatusLines.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(onboardingActionStatusLines.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
             }
             .modifier(GlassCardStyle(borderColor: sectionBorderColor))
         }
@@ -869,24 +880,35 @@ struct ContentView: View {
     private func runOnboardingActions() async {
         guard !isOnboardingActionInProgress else { return }
         isOnboardingActionInProgress = true
+        onboardingActionStatusLines = []
         defer {
             isOnboardingActionInProgress = false
             syncPhaseMilestonesFromRuntimeReadiness()
         }
 
+        appendOnboardingStatus("Started onboarding action run.")
+
         if onboardingScaffoldReady == false && onboardingHasInstaller {
+            appendOnboardingStatus("Installing VM scaffold from selected installer...")
             await installDownloadedDistribution(selectedCatalogDistribution)
+            appendOnboardingStatus("Install status: \(runtimeWorkbench.vmStatusMessage.isEmpty ? statusMessage : runtimeWorkbench.vmStatusMessage)")
         }
 
         guard let vmID = selectedInstalledVMID ?? runtimeWorkbench.activeVMID ?? runtimeWorkbench.lastManagedVMID else {
+            appendOnboardingStatus("Stopped: no managed VM is available after install step.")
             return
         }
 
         selectedInstalledVMID = vmID
+        appendOnboardingStatus("Selecting managed VM \(vmID.uuidString.prefix(8))...")
         await runtimeWorkbench.selectManagedVM(vmID)
 
         if runtimeWorkbench.runtimeState(for: vmID) != .running {
+            appendOnboardingStatus("Starting VM runtime...")
             await runtimeWorkbench.startActiveVM()
+            appendOnboardingStatus("VM runtime status: \(runtimeWorkbench.vmRuntimeStatusMessage)")
+        } else {
+            appendOnboardingStatus("VM runtime already running.")
         }
 
         let capabilitiesBefore = runtimeWorkbench.integrationCapabilities(for: vmID)
@@ -895,14 +917,31 @@ struct ContentView: View {
             !capabilitiesBefore.launcherEntries.isEmpty
 
         if !integrationReadyBefore {
+            appendOnboardingStatus("Preparing coherence essentials (shared folders, clipboard, launcher)...")
             await runtimeWorkbench.prepareCoherenceEssentials()
+            appendOnboardingStatus("Coherence prep status: \(runtimeWorkbench.integrationStatusMessage)")
+            appendOnboardingStatus("Verifying shared folder and clipboard...")
             await runtimeWorkbench.verifySharedFolderAndClipboard(vmID: vmID)
+            appendOnboardingStatus("Verification status: \(runtimeWorkbench.integrationStatusMessage)")
+        } else {
+            appendOnboardingStatus("Coherence essentials already configured.")
         }
 
         let capabilitiesAfter = runtimeWorkbench.integrationCapabilities(for: vmID)
         if let firstLauncher = capabilitiesAfter.launcherEntries.first {
+            appendOnboardingStatus("Launching integrated app via launcher '\(firstLauncher.name)'...")
             await runtimeWorkbench.launchIntegratedApp(vmID: vmID, launcherEntryID: firstLauncher.id)
+            appendOnboardingStatus("Launcher status: \(runtimeWorkbench.integrationStatusMessage)")
+        } else {
+            appendOnboardingStatus("No launcher entry is available to run.")
         }
+
+        appendOnboardingStatus("Onboarding action run finished.")
+    }
+
+    @MainActor
+    private func appendOnboardingStatus(_ line: String) {
+        onboardingActionStatusLines.append(line)
     }
 
     private var deliveryActionItemsView: some View {
