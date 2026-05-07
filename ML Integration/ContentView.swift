@@ -729,8 +729,19 @@ struct ContentView: View {
                     HStack(alignment: .top, spacing: 8) {
                         Text(item.status == .complete ? "✓" : (item.status == .inProgress ? "•" : "○"))
                             .foregroundColor(item.status == .complete ? .green : .orange)
-                        Text("\(item.title): \(item.status.rawValue)")
-                            .font(.caption)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(item.title): \(item.status.rawValue)")
+                                .font(.caption)
+                            Text(item.acceptanceCriteria)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        Button("Mark Complete") {
+                            _ = blueprintPlanner.completeDeliveryAction(id: item.id)
+                        }
+                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                        .disabled(item.status == .complete)
                     }
                 }
             }
