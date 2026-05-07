@@ -3601,6 +3601,7 @@ final class ML_IntegrationTests: XCTestCase {
 
         XCTAssertFalse(second.integrationRemediationRequireArming)
         XCTAssertEqual(second.integrationRemediationDeletionTimeoutSeconds, 60)
+        XCTAssertEqual(second.integrationRemediationDeletionPreferenceStatusMessage, "Deletion safety preferences loaded.")
     }
 
     @MainActor
@@ -3618,6 +3619,36 @@ final class ML_IntegrationTests: XCTestCase {
 
         viewModel.setIntegrationRemediationDeletionTimeout(seconds: 44)
         XCTAssertEqual(viewModel.integrationRemediationDeletionTimeoutSeconds, 30)
+        XCTAssertEqual(viewModel.integrationRemediationDeletionPreferenceStatusMessage, "Deletion safety preferences saved.")
+    }
+
+    @MainActor
+    func testIntegrationRemediationDeletionPreferenceStatusDefaultsWhenNoSavedFile() {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-delete-prefs-default-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        XCTAssertEqual(
+            viewModel.integrationRemediationDeletionPreferenceStatusMessage,
+            "Deletion safety preferences using defaults."
+        )
     }
 
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {

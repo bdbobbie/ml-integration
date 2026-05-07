@@ -1821,6 +1821,11 @@ struct ContentView: View {
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
+                            if !runtimeWorkbench.integrationRemediationDeletionPreferenceStatusMessage.isEmpty {
+                                Text(runtimeWorkbench.integrationRemediationDeletionPreferenceStatusMessage)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
 
                             TextField("Search report history", text: $remediationHistorySearchTerm)
                                 .textFieldStyle(.roundedBorder)

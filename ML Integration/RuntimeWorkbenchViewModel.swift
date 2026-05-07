@@ -111,6 +111,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var integrationRemediationDeletionSecondsRemaining: Int = 0
     @Published private(set) var integrationRemediationRequireArming: Bool = true
     @Published private(set) var integrationRemediationDeletionTimeoutSeconds: Int = 30
+    @Published private(set) var integrationRemediationDeletionPreferenceStatusMessage: String = "Deletion safety preferences using defaults."
     private let remediationHistoryRetentionLimit: Int = 25
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -1783,8 +1784,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     private func loadIntegrationRemediationDeletionSafetyPreferences() {
         let url = integrationRemediationDeletionSafetyPreferencesURL()
-        guard let data = try? Data(contentsOf: url) else { return }
+        guard let data = try? Data(contentsOf: url) else {
+            integrationRemediationDeletionPreferenceStatusMessage = "Deletion safety preferences using defaults."
+            return
+        }
         guard let preferences = try? JSONDecoder().decode(IntegrationRemediationDeletionSafetyPreferences.self, from: data) else {
+            integrationRemediationDeletionPreferenceStatusMessage = "Deletion safety preferences load failed. Using defaults."
             return
         }
         let timeout = normalizeIntegrationRemediationDeletionTimeout(preferences.timeoutSeconds)
@@ -1794,6 +1799,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         if !preferences.requireArming {
             disarmIntegrationRemediationDeletion()
         }
+        integrationRemediationDeletionPreferenceStatusMessage = "Deletion safety preferences loaded."
     }
 
     private func persistIntegrationRemediationDeletionSafetyPreferences() {
@@ -1804,9 +1810,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         do {
             let data = try JSONEncoder().encode(preferences)
             try data.write(to: integrationRemediationDeletionSafetyPreferencesURL(), options: [.atomic])
+            integrationRemediationDeletionPreferenceStatusMessage = "Deletion safety preferences saved."
         } catch {
             integrationRemediationHistoryDeleteStatusMessage =
                 "Failed to persist deletion safety preferences: \(error.localizedDescription)"
+            integrationRemediationDeletionPreferenceStatusMessage = "Deletion safety preferences save failed."
         }
     }
 
