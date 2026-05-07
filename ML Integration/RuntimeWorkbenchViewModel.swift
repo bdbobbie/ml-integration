@@ -11,6 +11,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         let displayV2Ready: Bool
     }
 
+    struct FleetRuntimeDiagnostic: Equatable {
+        let lastAction: String
+        let lastActionAt: Date
+        let lastErrorMessage: String?
+    }
+
     @Published private(set) var hostProfile: HostProfile?
     @Published private(set) var hostErrorMessage: String = ""
 
@@ -58,6 +64,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var installedVMEntries: [VMRegistryEntry] = []
     @Published private(set) var activeRuntimeVMIDs: [UUID] = []
     @Published private(set) var runtimeStateByVMID: [UUID: VMRuntimeState] = [:]
+    @Published private(set) var fleetDiagnosticsByVMID: [UUID: FleetRuntimeDiagnostic] = [:]
     @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -905,6 +912,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             traceVM("startActiveVM provisioningService.startVM returned vmID=\(vmID.uuidString)")
             vmRuntimeState = .running
             runtimeStateByVMID[vmID] = .running
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "start",
+                lastActionAt: Date(),
+                lastErrorMessage: nil
+            )
             vmRuntimeStatusMessage = "VM \(vmID.uuidString) is running."
             if !activeRuntimeVMIDs.contains(vmID) {
                 activeRuntimeVMIDs.append(vmID)
@@ -923,6 +935,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             }
             vmRuntimeState = .failed
             runtimeStateByVMID[vmID] = .failed
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "start",
+                lastActionAt: Date(),
+                lastErrorMessage: error.localizedDescription
+            )
             vmRuntimeStatusMessage = "Start VM failed: \(error.localizedDescription)"
             await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
         }
@@ -948,6 +965,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: "VM \(vmID.uuidString) stop request completed.")
             vmRuntimeState = .stopped
             runtimeStateByVMID[vmID] = .stopped
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "stop",
+                lastActionAt: Date(),
+                lastErrorMessage: nil
+            )
             vmRuntimeStatusMessage = "VM \(vmID.uuidString) stop request dispatched."
             activeRuntimeVMIDs.removeAll { $0 == vmID }
             persistRuntimeSessionSnapshot(vmID: vmID, state: .stopped)
@@ -957,6 +979,11 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
             vmRuntimeState = .failed
             runtimeStateByVMID[vmID] = .failed
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "stop",
+                lastActionAt: Date(),
+                lastErrorMessage: error.localizedDescription
+            )
             vmRuntimeStatusMessage = "Stop VM failed: \(error.localizedDescription)"
             return false
         }
@@ -1134,6 +1161,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     func runtimeState(for vmID: UUID) -> VMRuntimeState {
         runtimeStateByVMID[vmID] ?? .stopped
+    }
+
+    func fleetDiagnostic(for vmID: UUID) -> FleetRuntimeDiagnostic? {
+        fleetDiagnosticsByVMID[vmID]
     }
 
     func escalateToDevelopers(

@@ -1468,6 +1468,83 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testFleetDiagnosticsCaptureStartFailure() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-start-fail",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected VM id after scaffold.")
+            return
+        }
+
+        await provisioning.injectStartFailure(for: vmID)
+        await viewModel.startManagedVM(vmID)
+        let diagnostic = viewModel.fleetDiagnostic(for: vmID)
+        XCTAssertEqual(diagnostic?.lastAction, "start")
+        XCTAssertTrue(diagnostic?.lastErrorMessage?.contains("Injected start failure") == true)
+    }
+
+    @MainActor
+    func testFleetDiagnosticsCaptureStopFailure() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-stop-fail-diagnostic",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected VM id after scaffold.")
+            return
+        }
+
+        await viewModel.startManagedVM(vmID)
+        await provisioning.injectStopFailure(for: vmID)
+        _ = await viewModel.stopManagedVM(vmID)
+        let diagnostic = viewModel.fleetDiagnostic(for: vmID)
+        XCTAssertEqual(diagnostic?.lastAction, "stop")
+        XCTAssertTrue(diagnostic?.lastErrorMessage?.contains("Injected stop failure") == true)
+    }
+
+    @MainActor
     func testOnlyOneVMCanRunAtATimeAcrossSessions() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }
@@ -2651,6 +2728,7 @@ final class InMemoryTokenStore: GitHubTokenSecureStoring {
 
 actor MockProvisioningService: VMProvisioningService {
     private var statesByID: [UUID: VMRuntimeState] = [:]
+    private var startFailureVMIDs: Set<UUID> = []
     private var stopFailureVMIDs: Set<UUID> = []
 
     func validate(_ request: VMInstallRequest, assets: VMInstallAssets?) async throws {
@@ -2707,6 +2785,9 @@ actor MockProvisioningService: VMProvisioningService {
         if statesByID[id] == nil {
             throw RuntimeServiceError.vmNotFound
         }
+        if startFailureVMIDs.contains(id) {
+            throw RuntimeServiceError.invalidVMRequest("Injected start failure for testing.")
+        }
         if statesByID.contains(where: { $0.key != id && $0.value == .running }) {
             throw RuntimeServiceError.invalidVMRequest(
                 "Only one VM can run at a time in this release."
@@ -2727,5 +2808,9 @@ actor MockProvisioningService: VMProvisioningService {
 
     func injectStopFailure(for id: UUID) {
         stopFailureVMIDs.insert(id)
+    }
+
+    func injectStartFailure(for id: UUID) {
+        startFailureVMIDs.insert(id)
     }
 }

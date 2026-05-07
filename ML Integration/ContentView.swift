@@ -1665,6 +1665,7 @@ struct ContentView: View {
 
                             ForEach(runtimeWorkbench.installedVMEntries) { entry in
                                 let vmState = runtimeWorkbench.runtimeState(for: entry.id)
+                                let diagnostic = runtimeWorkbench.fleetDiagnostic(for: entry.id)
                                 HStack(spacing: 10) {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("\(entry.distribution.rawValue) • \(entry.vmName)")
@@ -1679,6 +1680,16 @@ struct ContentView: View {
                                             .padding(.vertical, 2)
                                             .background(vmStateChipBackground(vmState))
                                             .clipShape(Capsule())
+                                        if let diagnostic {
+                                            let errorSuffix = diagnostic.lastErrorMessage.map { " • Error: \($0)" } ?? ""
+                                            Text(
+                                                "Last \(diagnostic.lastAction) @ " +
+                                                "\(diagnostic.lastActionAt.formatted(date: .omitted, time: .standard))" +
+                                                errorSuffix
+                                            )
+                                            .font(.caption2)
+                                            .foregroundColor(diagnostic.lastErrorMessage == nil ? .secondary : .red)
+                                        }
                                     }
                                     Spacer()
                                     Button("Start") {
