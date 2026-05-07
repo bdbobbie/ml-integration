@@ -1410,6 +1410,13 @@ final class ML_IntegrationTests: XCTestCase {
             let fileURL = integrationDir.appendingPathComponent(relative)
             XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path), "Missing integration artifact: \(relative)")
         }
+
+        let stateURL = integrationDir.appendingPathComponent("integration-state.json")
+        let stateData = try Data(contentsOf: stateURL)
+        let state = try JSONDecoder().decode(IntegrationPackageState.self, from: stateData)
+        XCTAssertEqual(state.vmID, vmID.uuidString)
+        XCTAssertTrue(state.windowPolicyConfigPath.hasSuffix("window-coherence-policy.json"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: state.windowPolicyConfigPath))
     }
 
     func testUninstallUsesRegistryVMPathAndRemovesRegistryEntry() async throws {
