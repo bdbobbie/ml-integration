@@ -2158,6 +2158,112 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testLaunchIntegratedAppRetriesAndRecoversOnSecondAttempt() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-launcher-retry-recover-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let mockExecutor = MockLauncherScriptExecutor()
+        mockExecutor.queuedErrors = [RuntimeServiceError.commandFailed("transient failure")]
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: mockExecutor
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-retry-recover",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id after scaffold."); return }
+        await viewModel.prepareCoherenceEssentials()
+        guard let launcherEntry = viewModel.integrationCapabilities(for: vmID).launcherEntries.first else {
+            XCTFail("Expected launcher entry after coherence preparation.")
+            return
+        }
+
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: launcherEntry.id)
+
+        XCTAssertEqual(mockExecutor.executedScriptPaths.count, 2)
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("recovered on retry 2/2"))
+        XCTAssertEqual(viewModel.fleetDiagnostic(for: vmID)?.lastErrorMessage, nil)
+    }
+
+    @MainActor
+    func testLaunchIntegratedAppFailsAfterRetryBudgetExhausted() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-launcher-retry-fail-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let mockExecutor = MockLauncherScriptExecutor()
+        mockExecutor.nextError = RuntimeServiceError.commandFailed("persistent failure")
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: mockExecutor
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-retry-fail",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id after scaffold."); return }
+        await viewModel.prepareCoherenceEssentials()
+        guard let launcherEntry = viewModel.integrationCapabilities(for: vmID).launcherEntries.first else {
+            XCTFail("Expected launcher entry after coherence preparation.")
+            return
+        }
+
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: launcherEntry.id)
+
+        XCTAssertEqual(mockExecutor.executedScriptPaths.count, 2)
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("after 2 attempt(s)"))
+        XCTAssertNotNil(viewModel.fleetDiagnostic(for: vmID)?.lastErrorMessage)
+    }
+
+    @MainActor
     func testVerifySharedFolderAndClipboardPassesWhenArtifactsValid() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }
@@ -4650,9 +4756,14 @@ final class MockLauncherScriptExecutor: LauncherScriptExecuting {
     var executedScriptPaths: [String] = []
     var nextError: Error?
     var nextOutput: String = ""
+    var queuedErrors: [Error] = []
 
     func executeScript(atPath path: String) async throws -> String {
         executedScriptPaths.append(path)
+        if !queuedErrors.isEmpty {
+            let error = queuedErrors.removeFirst()
+            throw error
+        }
         if let nextError {
             throw nextError
         }

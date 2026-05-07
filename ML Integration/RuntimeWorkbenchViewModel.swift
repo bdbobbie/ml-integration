@@ -162,6 +162,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private var activeDownloadStartDate: Date?
     private var activeInstallStartDate: Date?
     private let integrationRemediationDeletionTimeoutOptions: [Int] = [10, 30, 60]
+    private let launcherExecutionMaxAttempts = 2
 
     private struct IntegrationRemediationDeletionSafetyPreferences: Codable {
         let requireArming: Bool
@@ -1394,22 +1395,31 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             )
             return
         }
-        do {
-            let output = try await launcherExecutor.executeScript(atPath: launcherEntry.scriptPath)
-            let suffix = output.isEmpty ? "" : " Output: \(output)"
-            integrationStatusMessage = "Launched \(launcherEntry.name) for VM \(vmID.uuidString).\(suffix)"
-            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
-                lastAction: "launcher-\(launcherEntry.name)",
-                lastActionAt: Date(),
-                lastErrorMessage: nil
-            )
-        } catch {
-            integrationStatusMessage = "Launcher execution failed for \(launcherEntry.name): \(error.localizedDescription)"
-            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
-                lastAction: "launcher-\(launcherEntry.name)",
-                lastActionAt: Date(),
-                lastErrorMessage: integrationStatusMessage
-            )
+        for attempt in 1...launcherExecutionMaxAttempts {
+            do {
+                let output = try await launcherExecutor.executeScript(atPath: launcherEntry.scriptPath)
+                let outputSuffix = output.isEmpty ? "" : " Output: \(output)"
+                let retrySuffix = attempt > 1 ? " (recovered on retry \(attempt)/\(launcherExecutionMaxAttempts))" : ""
+                integrationStatusMessage =
+                    "Launched \(launcherEntry.name) for VM \(vmID.uuidString).\(outputSuffix)\(retrySuffix)"
+                fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                    lastAction: "launcher-\(launcherEntry.name)",
+                    lastActionAt: Date(),
+                    lastErrorMessage: nil
+                )
+                return
+            } catch {
+                if attempt == launcherExecutionMaxAttempts {
+                    integrationStatusMessage =
+                        "Launcher execution failed for \(launcherEntry.name) after \(launcherExecutionMaxAttempts) attempt(s): \(error.localizedDescription)"
+                    fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                        lastAction: "launcher-\(launcherEntry.name)",
+                        lastActionAt: Date(),
+                        lastErrorMessage: integrationStatusMessage
+                    )
+                    return
+                }
+            }
         }
     }
 
