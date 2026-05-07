@@ -19,6 +19,10 @@ final class DefaultHealthAndRepairService: HealthAndRepairService {
             ? "OK: Shared resources config exists"
             : "WARN: Shared resources config is missing")
 
+        report.append(fileExists(paths.windowPolicyConfig)
+            ? "OK: Window coherence policy exists"
+            : "WARN: Window coherence policy is missing")
+
         report.append(fileExists(paths.launcherManifest)
             ? "OK: Launcher manifest exists"
             : "WARN: Launcher manifest is missing")
@@ -77,10 +81,12 @@ final class DefaultHealthAndRepairService: HealthAndRepairService {
         return IntegrationHealthPaths(
             integrationDirectory: integrationDirectory,
             sharedResourcesConfig: integrationDirectory.appendingPathComponent("shared-resources.json"),
+            windowPolicyConfig: integrationDirectory.appendingPathComponent("window-coherence-policy.json"),
             launcherManifest: integrationDirectory.appendingPathComponent("launcher-manifest.json"),
             rootlessConfig: integrationDirectory.appendingPathComponent("rootless-apps.json"),
             integrationState: integrationDirectory.appendingPathComponent("integration-state.json"),
             hostScripts: [
+                integrationDirectory.appendingPathComponent("host-scripts/apply-window-coherence.command"),
                 integrationDirectory.appendingPathComponent("host-scripts/launch-linux-terminal.command"),
                 integrationDirectory.appendingPathComponent("host-scripts/launch-linux-files.command"),
                 integrationDirectory.appendingPathComponent("host-scripts/launch-linux-browser.command"),
@@ -98,6 +104,7 @@ final class DefaultHealthAndRepairService: HealthAndRepairService {
 private struct IntegrationHealthPaths {
     let integrationDirectory: URL
     let sharedResourcesConfig: URL
+    let windowPolicyConfig: URL
     let launcherManifest: URL
     let rootlessConfig: URL
     let integrationState: URL

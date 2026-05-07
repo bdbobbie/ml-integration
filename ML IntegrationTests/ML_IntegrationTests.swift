@@ -1421,6 +1421,35 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: state.windowPolicyConfigPath))
     }
 
+    func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-health-window-policy-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let vmID = UUID()
+        let integrationService = DefaultIntegrationService()
+        try await integrationService.configureSharedResources(for: vmID)
+        try await integrationService.configureLauncherEntries(for: vmID)
+        try await integrationService.enableRootlessLinuxApps(for: vmID)
+
+        let healthService = DefaultHealthAndRepairService(integrationService: integrationService)
+        let report = try await healthService.runHealthCheck(for: vmID)
+
+        XCTAssertTrue(report.contains("OK: Window coherence policy exists"))
+        XCTAssertTrue(report.contains("OK: Host script present - apply-window-coherence.command"))
+        XCTAssertFalse(report.contains(where: { $0.hasPrefix("WARN") }))
+    }
+
     func testUninstallUsesRegistryVMPathAndRemovesRegistryEntry() async throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("cleanup-registry-\(UUID().uuidString)", isDirectory: true)
