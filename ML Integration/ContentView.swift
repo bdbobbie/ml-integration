@@ -1929,6 +1929,15 @@ struct ContentView: View {
                                                     .font(.caption2)
                                                     .foregroundColor(.secondary)
                                             }
+                                            ForEach(
+                                                Array(runtimeWorkbench.launcherRunHistoryPreview(vmID: entry.id, limit: 3).enumerated()),
+                                                id: \.offset
+                                            ) { _, line in
+                                                Text("• \(line)")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
+                                                    .lineLimit(1)
+                                            }
                                         }
                                     }
                                     Spacer()
@@ -1978,6 +1987,12 @@ struct ContentView: View {
                                     Button("Export Launcher History") {
                                         runtimeWorkbench.exportLauncherRunHistory(vmID: entry.id)
                                         presentInfo(runtimeWorkbench.integrationStatusMessage)
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
+                                    Button("Open Launcher Exports") {
+                                        _ = NSWorkspace.shared.open(runtimeWorkbench.launcherRunHistoryExportsDirectory())
                                     }
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)

@@ -1283,6 +1283,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         launcherRunHistoryByVMID[vmID] ?? []
     }
 
+    func launcherRunHistoryPreview(vmID: UUID, limit: Int = 3) -> [String] {
+        Array(launcherRunHistory(for: vmID).prefix(max(0, limit))).map { state in
+            "\(state.launcherName) • \(state.status.rawValue) • \(state.message)"
+        }
+    }
+
     func exportLauncherRunHistory(vmID: UUID) {
         let history = launcherRunHistory(for: vmID)
         guard !history.isEmpty else {
@@ -1308,6 +1314,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         } catch {
             integrationStatusMessage = "Launcher history export failed: \(error.localizedDescription)"
         }
+    }
+
+    func launcherRunHistoryExportsDirectory() -> URL {
+        launcherRunHistoryExportsDirectoryURL()
     }
 
     func confirmClearLauncherRunHistory(vmID: UUID) {
