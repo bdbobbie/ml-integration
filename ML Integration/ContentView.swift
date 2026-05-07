@@ -538,6 +538,8 @@ struct ContentView: View {
                                         }
                                     }
                                 }
+
+                                deliveryActionItemsView
                         }
                     }
                     .frame(maxWidth: 980)
@@ -693,6 +695,11 @@ struct ContentView: View {
             deviceMediaReady: readiness.deviceMediaReady,
             displayV2Ready: readiness.displayV2Ready
         )
+        blueprintPlanner.syncDeliveryActionItems(
+            plannerReady: blueprintPlanner.isReadyForEnvironmentTesting,
+            phaseSweepReady: runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting(),
+            phase2DisplayReady: readiness.displayV2Ready
+        )
     }
 
     private var environmentTestingGateReady: Bool {
@@ -705,6 +712,29 @@ struct ContentView: View {
         runtimeWorkbench.environmentTestingGateSummary(
             plannerReady: blueprintPlanner.isReadyForEnvironmentTesting
         )
+    }
+
+    private var deliveryActionItemsView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Remaining Delivery Actions")
+                .font(.subheadline)
+                .padding(.top, 8)
+
+            Text(blueprintPlanner.deliveryActionProgressSummary)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(blueprintPlanner.deliveryActionItems) { item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(item.status == .complete ? "✓" : (item.status == .inProgress ? "•" : "○"))
+                            .foregroundColor(item.status == .complete ? .green : .orange)
+                        Text("\(item.title): \(item.status.rawValue)")
+                            .font(.caption)
+                    }
+                }
+            }
+        }
     }
 
     private let supportGitHubOwner = "bdbobbie"
