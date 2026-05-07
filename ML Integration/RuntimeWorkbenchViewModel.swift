@@ -1122,7 +1122,13 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         if failedStopIDs.isEmpty {
             vmRuntimeStatusMessage = "Stopped \(runningVMIDs.count) running VM(s)."
         } else {
-            vmRuntimeStatusMessage = "Stopped \(stoppedCount) VM(s); failed to stop \(failedStopIDs.count) VM(s)."
+            let failedDetails = failedStopIDs.compactMap { vmID in
+                installedVMEntries.first(where: { $0.id == vmID }).map { "\($0.vmName) (\(vmID.uuidString.prefix(8)))" }
+                    ?? vmID.uuidString
+            }
+            vmRuntimeStatusMessage =
+                "Stopped \(stoppedCount) VM(s); failed to stop \(failedStopIDs.count) VM(s): " +
+                failedDetails.joined(separator: ", ")
         }
     }
 

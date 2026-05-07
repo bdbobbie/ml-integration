@@ -1332,6 +1332,19 @@ struct ContentView: View {
         return url.pathExtension.lowercased() == "iso" && FileManager.default.fileExists(atPath: url.path)
     }
 
+    private func vmStateChipBackground(_ state: VMRuntimeState) -> Color {
+        switch state {
+        case .running:
+            return Color.green.opacity(0.18)
+        case .failed:
+            return Color.red.opacity(0.18)
+        case .starting, .stopping, .restarting:
+            return Color.orange.opacity(0.18)
+        case .stopped:
+            return Color.white.opacity(0.12)
+        }
+    }
+
     private var uiTestSchemaWarningBanner: some View {
         HStack(spacing: 8) {
             Text("Warning: window policy schema is invalid. Coherence behavior may be unstable until repaired.")
@@ -1662,6 +1675,10 @@ struct ContentView: View {
                                                 vmState == .running ? .green :
                                                     (vmState == .failed ? .red : .secondary)
                                             )
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 2)
+                                            .background(vmStateChipBackground(vmState))
+                                            .clipShape(Capsule())
                                     }
                                     Spacer()
                                     Button("Start") {

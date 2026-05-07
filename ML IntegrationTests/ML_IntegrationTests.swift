@@ -1464,6 +1464,7 @@ final class ML_IntegrationTests: XCTestCase {
         await viewModel.startManagedVM(vmB)
         await viewModel.stopAllRunningVMs()
         XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("failed to stop 1 VM"))
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("vm-stop-fail-a"))
     }
 
     @MainActor
