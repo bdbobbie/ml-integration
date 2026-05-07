@@ -225,6 +225,15 @@ struct PersistedLauncherRunState: Codable, Equatable {
     let message: String
 }
 
+enum LauncherHistoryStatusFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case running = "Running"
+    case succeeded = "Succeeded"
+    case failed = "Failed"
+
+    var id: String { rawValue }
+}
+
 enum IntegrationHealthBadgeStatus: String, Equatable, Codable {
     case healthy
     case warning

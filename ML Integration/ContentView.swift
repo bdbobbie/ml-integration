@@ -87,6 +87,7 @@ struct ContentView: View {
     @State private var remediationHistorySearchTerm: String = ""
     @State private var remediationHistoryStatusFilter: IntegrationRemediationHistoryStatusFilter = .all
     @State private var remediationHistoryRecentFirst: Bool = true
+    @State private var launcherHistoryStatusFilter: LauncherHistoryStatusFilter = .all
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @AppStorage("visualStyleMode") private var visualStyleModeRaw: String = VisualStyleMode.nativeMac.rawValue
     @AppStorage("lightIntensity") private var lightIntensity: Double = 1.0
@@ -1676,6 +1677,13 @@ struct ContentView: View {
                             }
                             .pickerStyle(.segmented)
 
+                            Picker("Launcher History", selection: $launcherHistoryStatusFilter) {
+                                ForEach(LauncherHistoryStatusFilter.allCases) { filter in
+                                    Text(filter.rawValue).tag(filter)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
                             Button("Stop All Running VMs") {
                                 Task {
                                     await runtimeWorkbench.stopAllRunningVMs()
@@ -1930,7 +1938,13 @@ struct ContentView: View {
                                                     .foregroundColor(.secondary)
                                             }
                                             ForEach(
-                                                Array(runtimeWorkbench.launcherRunHistoryPreview(vmID: entry.id, limit: 3).enumerated()),
+                                                Array(
+                                                    runtimeWorkbench.launcherRunHistoryPreview(
+                                                        vmID: entry.id,
+                                                        statusFilter: launcherHistoryStatusFilter,
+                                                        limit: 3
+                                                    ).enumerated()
+                                                ),
                                                 id: \.offset
                                             ) { _, line in
                                                 Text("• \(line)")

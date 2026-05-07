@@ -1289,6 +1289,27 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
     }
 
+    func launcherRunHistoryPreview(
+        vmID: UUID,
+        statusFilter: LauncherHistoryStatusFilter,
+        limit: Int = 3
+    ) -> [String] {
+        let filtered: [LauncherRunState]
+        switch statusFilter {
+        case .all:
+            filtered = launcherRunHistory(for: vmID)
+        case .running:
+            filtered = launcherRunHistory(for: vmID).filter { $0.status == .running }
+        case .succeeded:
+            filtered = launcherRunHistory(for: vmID).filter { $0.status == .succeeded }
+        case .failed:
+            filtered = launcherRunHistory(for: vmID).filter { $0.status == .failed }
+        }
+        return Array(filtered.prefix(max(0, limit))).map { state in
+            "\(state.launcherName) • \(state.status.rawValue) • \(state.message)"
+        }
+    }
+
     func exportLauncherRunHistory(vmID: UUID) {
         let history = launcherRunHistory(for: vmID)
         guard !history.isEmpty else {
