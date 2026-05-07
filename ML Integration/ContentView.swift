@@ -742,6 +742,12 @@ struct ContentView: View {
                         }
                         .buttonStyle(RedTextWhiteOutlineButtonStyle())
                         .disabled(item.status == .complete)
+
+                        Button("Mark Pending") {
+                            _ = blueprintPlanner.resetDeliveryActionToPending(id: item.id)
+                        }
+                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                        .disabled(item.status == .pending)
                     }
                 }
             }

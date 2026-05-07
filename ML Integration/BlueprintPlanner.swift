@@ -462,6 +462,15 @@ final class BlueprintPlanner: ObservableObject {
     }
 
     @discardableResult
+    func resetDeliveryActionToPending(id: String) -> Bool {
+        guard let index = deliveryActionItems.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        deliveryActionItems[index].status = .pending
+        return true
+    }
+
+    @discardableResult
     func exportPhaseStateReport() -> URL? {
         do {
             let url = try persistPhaseStateReport()
