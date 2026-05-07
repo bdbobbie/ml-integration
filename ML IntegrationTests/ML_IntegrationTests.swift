@@ -3315,6 +3315,125 @@ final class ML_IntegrationTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testConfirmDeleteIntegrationRemediationReportBlockedWhenNotArmed() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-delete-gate-single-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let reportsDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+        let reportURL = reportsDirectory.appendingPathComponent("gated-single.json")
+        let report = IntegrationRemediationRunReport(
+            id: UUID(),
+            timestampISO8601: ISO8601DateFormatter().string(from: Date()),
+            attemptedCount: 1,
+            fixedCount: 1,
+            remainingCount: 0,
+            vmResults: []
+        )
+        try JSONEncoder().encode(report).write(to: reportURL, options: [.atomic])
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        viewModel.confirmDeleteIntegrationRemediationReport(atPath: reportURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reportURL.path))
+        XCTAssertEqual(viewModel.integrationRemediationHistoryDeleteStatusMessage, "Deletion blocked. Arm deletion first.")
+    }
+
+    @MainActor
+    func testConfirmDeleteIntegrationRemediationReportDeletesWhenArmed() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-delete-gate-confirm-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let reportsDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+        let reportURL = reportsDirectory.appendingPathComponent("gated-confirm.json")
+        let report = IntegrationRemediationRunReport(
+            id: UUID(),
+            timestampISO8601: ISO8601DateFormatter().string(from: Date()),
+            attemptedCount: 1,
+            fixedCount: 1,
+            remainingCount: 0,
+            vmResults: []
+        )
+        try JSONEncoder().encode(report).write(to: reportURL, options: [.atomic])
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        viewModel.armIntegrationRemediationDeletion()
+        viewModel.confirmDeleteIntegrationRemediationReport(atPath: reportURL.path)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reportURL.path))
+        XCTAssertFalse(viewModel.integrationRemediationDeletionArmed)
+    }
+
+    @MainActor
+    func testConfirmDeleteMalformedIntegrationRemediationReportsBlockedWhenNotArmed() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-delete-gate-bulk-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let reportsDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+        let malformedURL = reportsDirectory.appendingPathComponent("gated-bulk-malformed.json")
+        try Data("{\"oops\":".utf8).write(to: malformedURL, options: [.atomic])
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        viewModel.confirmDeleteMalformedIntegrationRemediationReports()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: malformedURL.path))
+        XCTAssertEqual(viewModel.integrationRemediationHistoryDeleteStatusMessage, "Deletion blocked. Arm deletion first.")
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

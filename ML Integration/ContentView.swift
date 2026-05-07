@@ -1749,8 +1749,17 @@ struct ContentView: View {
                                     presentInfo(runtimeWorkbench.integrationRemediationHistoryCleanupStatusMessage)
                                 }
                                 .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                Button(runtimeWorkbench.integrationRemediationDeletionArmed ? "Delete Armed" : "Arm Delete") {
+                                    if runtimeWorkbench.integrationRemediationDeletionArmed {
+                                        runtimeWorkbench.disarmIntegrationRemediationDeletion()
+                                    } else {
+                                        runtimeWorkbench.armIntegrationRemediationDeletion()
+                                    }
+                                    presentInfo(runtimeWorkbench.integrationRemediationHistoryDeleteStatusMessage)
+                                }
+                                .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                 Button("Delete Malformed") {
-                                    runtimeWorkbench.deleteMalformedIntegrationRemediationReports()
+                                    runtimeWorkbench.confirmDeleteMalformedIntegrationRemediationReports()
                                     presentInfo(runtimeWorkbench.integrationRemediationHistoryDeleteStatusMessage)
                                 }
                                 .buttonStyle(RedTextWhiteOutlineButtonStyle())
@@ -1802,7 +1811,7 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     Button("Delete") {
-                                        runtimeWorkbench.deleteIntegrationRemediationReport(atPath: reportEntry.path)
+                                        runtimeWorkbench.confirmDeleteIntegrationRemediationReport(atPath: reportEntry.path)
                                     }
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                 }

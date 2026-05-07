@@ -107,6 +107,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var integrationRemediationHistoryCleanupStatusMessage: String = ""
     @Published private(set) var malformedIntegrationRemediationReportCount: Int = 0
     @Published private(set) var integrationRemediationHistoryDeleteStatusMessage: String = ""
+    @Published private(set) var integrationRemediationDeletionArmed: Bool = false
     private let remediationHistoryRetentionLimit: Int = 25
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -1638,6 +1639,33 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
         refreshIntegrationRemediationReportHistory()
         integrationRemediationHistoryDeleteStatusMessage = "Deleted \(removedCount) malformed remediation report(s)."
+    }
+
+    func armIntegrationRemediationDeletion() {
+        integrationRemediationDeletionArmed = true
+        integrationRemediationHistoryDeleteStatusMessage = "Destructive deletion armed."
+    }
+
+    func disarmIntegrationRemediationDeletion() {
+        integrationRemediationDeletionArmed = false
+    }
+
+    func confirmDeleteIntegrationRemediationReport(atPath path: String) {
+        guard integrationRemediationDeletionArmed else {
+            integrationRemediationHistoryDeleteStatusMessage = "Deletion blocked. Arm deletion first."
+            return
+        }
+        deleteIntegrationRemediationReport(atPath: path)
+        integrationRemediationDeletionArmed = false
+    }
+
+    func confirmDeleteMalformedIntegrationRemediationReports() {
+        guard integrationRemediationDeletionArmed else {
+            integrationRemediationHistoryDeleteStatusMessage = "Deletion blocked. Arm deletion first."
+            return
+        }
+        deleteMalformedIntegrationRemediationReports()
+        integrationRemediationDeletionArmed = false
     }
 
     func integrationRemediationReportsDirectoryURL() -> URL {
