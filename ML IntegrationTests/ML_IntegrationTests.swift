@@ -2981,6 +2981,73 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testFleetLauncherRunHistoryJSONReturnsEmptyWhenNoHistory() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        let json = viewModel.fleetLauncherRunHistoryJSON(filteredBy: .all, limitPerVM: 10)
+        XCTAssertEqual(json, "")
+    }
+
+    @MainActor
+    func testFleetLauncherRunHistoryJSONReturnsPayloadForFleetFilter() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-fleet-launcher-json-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: MockLauncherScriptExecutor()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-fleet-json",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id after scaffold."); return }
+        await viewModel.prepareCoherenceEssentials()
+        guard let launcherEntry = viewModel.integrationCapabilities(for: vmID).launcherEntries.first else {
+            XCTFail("Expected launcher entry after coherence preparation.")
+            return
+        }
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: launcherEntry.id)
+
+        let allJSON = viewModel.fleetLauncherRunHistoryJSON(filteredBy: .all, limitPerVM: 10)
+        let runningJSON = viewModel.fleetLauncherRunHistoryJSON(filteredBy: .running, limitPerVM: 10)
+        XCTAssertFalse(allJSON.isEmpty)
+        XCTAssertTrue(allJSON.contains(vmID.uuidString))
+        XCTAssertTrue(allJSON.contains(launcherEntry.name))
+        XCTAssertTrue(runningJSON.isEmpty)
+    }
+
+    @MainActor
     func testVerifySharedFolderAndClipboardPassesWhenArtifactsValid() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

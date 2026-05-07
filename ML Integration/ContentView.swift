@@ -1706,6 +1706,23 @@ struct ContentView: View {
                             .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             .disabled(isCreatingVM)
 
+                            Button("Copy Fleet Launcher JSON") {
+                                let text = runtimeWorkbench.fleetLauncherRunHistoryJSON(
+                                    filteredBy: runtimeFleetFilter,
+                                    limitPerVM: 10
+                                )
+                                if text.isEmpty {
+                                    presentInfo("No fleet launcher history JSON to copy for current filter.")
+                                } else {
+                                    let pasteboard = NSPasteboard.general
+                                    pasteboard.clearContents()
+                                    pasteboard.setString(text, forType: .string)
+                                    presentInfo("Copied fleet launcher history JSON.")
+                                }
+                            }
+                            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                            .disabled(isCreatingVM)
+
                             if !runtimeWorkbench.lastIntegrationRemediationReportPath.isEmpty {
                                 Text("Last remediation report: \(runtimeWorkbench.lastIntegrationRemediationReportPath)")
                                     .font(.caption2)
@@ -3149,6 +3166,8 @@ private struct ThinRedInputOutline: ViewModifier {
     }
 }
 
-#Preview {
-    ContentView()
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }
 }

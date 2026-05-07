@@ -1360,6 +1360,30 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return json
     }
 
+    func fleetLauncherRunHistoryJSON(filteredBy filter: FleetStateFilter, limitPerVM: Int = 10) -> String {
+        let formatter = ISO8601DateFormatter()
+        let entries = fleetEntries(filteredBy: filter)
+        var payload: [String: [PersistedLauncherRunState]] = [:]
+        for entry in entries {
+            let vmHistory = Array(launcherRunHistory(for: entry.id).prefix(max(0, limitPerVM)))
+            guard !vmHistory.isEmpty else { continue }
+            payload[entry.id.uuidString] = vmHistory.map { state in
+                PersistedLauncherRunState(
+                    launcherName: state.launcherName,
+                    statusRaw: state.status.rawValue,
+                    updatedAtISO8601: formatter.string(from: state.updatedAt),
+                    message: state.message
+                )
+            }
+        }
+        guard !payload.isEmpty,
+              let data = try? JSONEncoder().encode(payload),
+              let json = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return json
+    }
+
     func launcherRunHistoryPreview(
         vmID: UUID,
         statusFilter: LauncherHistoryStatusFilter,
