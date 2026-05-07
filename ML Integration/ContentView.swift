@@ -2049,6 +2049,39 @@ struct ContentView: View {
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)
 
+                                    Button("Copy History JSON") {
+                                        let text = runtimeWorkbench.launcherRunHistoryJSON(vmID: entry.id, limit: 10)
+                                        if text.isEmpty {
+                                            presentInfo("No launcher history JSON to copy for VM \(entry.vmName).")
+                                        } else {
+                                            let pasteboard = NSPasteboard.general
+                                            pasteboard.clearContents()
+                                            pasteboard.setString(text, forType: .string)
+                                            presentInfo("Copied launcher history JSON for VM \(entry.vmName).")
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
+                                    Button("Copy Filtered JSON") {
+                                        let text = runtimeWorkbench.filteredLauncherRunHistoryJSON(
+                                            vmID: entry.id,
+                                            statusFilter: launcherHistoryStatusFilter,
+                                            searchTerm: launcherHistorySearchTerm,
+                                            limit: 10
+                                        )
+                                        if text.isEmpty {
+                                            presentInfo("No filtered launcher history JSON to copy for VM \(entry.vmName).")
+                                        } else {
+                                            let pasteboard = NSPasteboard.general
+                                            pasteboard.clearContents()
+                                            pasteboard.setString(text, forType: .string)
+                                            presentInfo("Copied filtered launcher history JSON for VM \(entry.vmName).")
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
                                     Button("Clear Launcher History") {
                                         runtimeWorkbench.confirmClearLauncherRunHistory(vmID: entry.id)
                                         presentInfo(runtimeWorkbench.integrationStatusMessage)

@@ -1311,6 +1311,55 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return lines.joined(separator: "\n")
     }
 
+    func launcherRunHistoryJSON(vmID: UUID, limit: Int = 10) -> String {
+        let history = Array(launcherRunHistory(for: vmID).prefix(max(0, limit)))
+        guard !history.isEmpty else { return "" }
+        let formatter = ISO8601DateFormatter()
+        let payload = history.map { state in
+            PersistedLauncherRunState(
+                launcherName: state.launcherName,
+                statusRaw: state.status.rawValue,
+                updatedAtISO8601: formatter.string(from: state.updatedAt),
+                message: state.message
+            )
+        }
+        guard let data = try? JSONEncoder().encode(payload),
+              let json = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return json
+    }
+
+    func filteredLauncherRunHistoryJSON(
+        vmID: UUID,
+        statusFilter: LauncherHistoryStatusFilter,
+        searchTerm: String,
+        limit: Int = 10
+    ) -> String {
+        let lines = launcherRunHistoryPreview(
+            vmID: vmID,
+            statusFilter: statusFilter,
+            searchTerm: searchTerm,
+            limit: limit
+        )
+        guard !lines.isEmpty else { return "" }
+        let filtered = lines.compactMap { line -> PersistedLauncherRunState? in
+            let parts = line.components(separatedBy: " • ")
+            guard parts.count >= 3 else { return nil }
+            return PersistedLauncherRunState(
+                launcherName: parts[0],
+                statusRaw: parts[1],
+                updatedAtISO8601: "",
+                message: parts.dropFirst(2).joined(separator: " • ")
+            )
+        }
+        guard let data = try? JSONEncoder().encode(filtered),
+              let json = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return json
+    }
+
     func launcherRunHistoryPreview(
         vmID: UUID,
         statusFilter: LauncherHistoryStatusFilter,
