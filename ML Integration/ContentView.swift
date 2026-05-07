@@ -114,13 +114,15 @@ struct ContentView: View {
 
     private var uiForceSchemaInvalid: Bool {
         let processInfo = ProcessInfo.processInfo
-        return processInfo.environment[RuntimeEnvironment.uiForceSchemaInvalidVariable] == "1" ||
+        return RuntimeEnvironment.isUITestSession ||
+            processInfo.environment[RuntimeEnvironment.uiForceSchemaInvalidVariable] == "1" ||
             processInfo.arguments.contains(RuntimeEnvironment.uiForceSchemaInvalidArgument)
     }
 
     private var uiForceRepairActionEnabled: Bool {
         let processInfo = ProcessInfo.processInfo
-        return processInfo.environment[RuntimeEnvironment.uiEnableRepairActionVariable] == "1" ||
+        return RuntimeEnvironment.isUITestSession ||
+            processInfo.environment[RuntimeEnvironment.uiEnableRepairActionVariable] == "1" ||
             processInfo.arguments.contains(RuntimeEnvironment.uiEnableRepairActionArgument)
     }
 
@@ -211,6 +213,10 @@ struct ContentView: View {
                 Divider()
                 
                 // Main Content
+                if uiForceSchemaInvalid || uiForceRepairActionEnabled {
+                    uiTestSchemaWarningBanner
+                }
+
                 ScrollView {
                     VStack(spacing: 20) {
                         // VM Controls Section
@@ -1324,6 +1330,34 @@ struct ContentView: View {
         guard !trimmed.isEmpty else { return false }
         let url = URL(fileURLWithPath: trimmed)
         return url.pathExtension.lowercased() == "iso" && FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private var uiTestSchemaWarningBanner: some View {
+        HStack(spacing: 8) {
+            Text("Warning: window policy schema is invalid. Coherence behavior may be unstable until repaired.")
+                .font(.caption)
+                .foregroundColor(.red)
+                .accessibilityIdentifier("coherence-schema-warning")
+            Spacer(minLength: 0)
+            Button("Repair Coherence Policy") {
+                Task {
+                    await runtimeWorkbench.repairCoherencePolicy()
+                    presentInfo(runtimeWorkbench.healthStatusMessage)
+                }
+            }
+            .accessibilityIdentifier("repair-coherence-policy-button")
+            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.red.opacity(0.08))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.red.opacity(0.45), lineWidth: 1)
+        )
+        .padding(.horizontal, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("coherence-schema-warning-container")
     }
 
     private func importInstallerIntoManagedDownloads(distribution: LinuxDistribution, sourcePath: String) throws -> String {

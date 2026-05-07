@@ -56,6 +56,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var activeVMID: UUID?
     @Published private(set) var lastManagedVMID: UUID?
     @Published private(set) var installedVMEntries: [VMRegistryEntry] = []
+    @Published private(set) var activeRuntimeVMIDs: [UUID] = []
     @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -901,6 +902,9 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             traceVM("startActiveVM provisioningService.startVM returned vmID=\(vmID.uuidString)")
             vmRuntimeState = .running
             vmRuntimeStatusMessage = "VM \(vmID.uuidString) is running."
+            if !activeRuntimeVMIDs.contains(vmID) {
+                activeRuntimeVMIDs.append(vmID)
+            }
             persistRuntimeSessionSnapshot(vmID: vmID, state: .running)
             await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: vmRuntimeStatusMessage)
         } catch {
@@ -908,6 +912,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             if case RuntimeServiceError.vmNotFound = error {
                 activeVMID = nil
                 lastManagedVMID = nil
+                activeRuntimeVMIDs.removeAll { $0 == vmID }
                 clearRuntimeSessionSnapshot()
                 installLifecycleState = .idle
                 installLifecycleDetail = "No VM scaffold is currently installed. Install an OS first."
@@ -944,6 +949,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
         vmRuntimeState = .stopped
         vmRuntimeStatusMessage = "VM \(vmID.uuidString) stop request dispatched."
+        activeRuntimeVMIDs.removeAll { $0 == vmID }
         persistRuntimeSessionSnapshot(vmID: vmID, state: .stopped)
     }
 
@@ -1028,6 +1034,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             cleanupStatusMessage = "Uninstall completed for VM \(vmID.uuidString)."
             lastManagedVMID = vmID
             activeVMID = nil
+            activeRuntimeVMIDs.removeAll { $0 == vmID }
             installLifecycleState = .idle
             installLifecycleDetail = "No active VM install scaffold is currently selected."
             vmRuntimeState = .stopped
@@ -1068,6 +1075,21 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         activeVMID = id
         lastManagedVMID = id
         persistRuntimeSessionSnapshot(vmID: id, state: vmRuntimeState)
+    }
+
+    func startManagedVM(_ id: UUID) async {
+        await selectManagedVM(id)
+        await startActiveVM()
+    }
+
+    func stopManagedVM(_ id: UUID) async {
+        await selectManagedVM(id)
+        await stopActiveVM()
+    }
+
+    func runtimeFleetStatusSummary() -> String {
+        let runningCount = activeRuntimeVMIDs.count
+        return "Runtime fleet | Installed: \(installedVMEntries.count) | Running: \(runningCount)"
     }
 
     func escalateToDevelopers(

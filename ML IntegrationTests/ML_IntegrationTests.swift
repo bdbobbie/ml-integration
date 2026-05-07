@@ -1299,6 +1299,64 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testRuntimeFleetTrackingForManagedVMStartStop() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-fleet-a",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmA = viewModel.activeVMID else {
+            XCTFail("Expected first VM id after scaffold.")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .debian,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-fleet-b",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmB = viewModel.activeVMID else {
+            XCTFail("Expected second VM id after scaffold.")
+            return
+        }
+
+        await viewModel.startManagedVM(vmA)
+        XCTAssertTrue(viewModel.activeRuntimeVMIDs.contains(vmA))
+        XCTAssertTrue(viewModel.runtimeFleetStatusSummary().contains("Running: 1"))
+
+        await viewModel.startManagedVM(vmB)
+        XCTAssertTrue(viewModel.activeRuntimeVMIDs.contains(vmA))
+        XCTAssertFalse(viewModel.activeRuntimeVMIDs.contains(vmB))
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("Only one VM can run at a time"))
+
+        await viewModel.stopManagedVM(vmA)
+        XCTAssertFalse(viewModel.activeRuntimeVMIDs.contains(vmA))
+        XCTAssertTrue(viewModel.runtimeFleetStatusSummary().contains("Running: 0"))
+    }
+
+    @MainActor
     func testOnlyOneVMCanRunAtATimeAcrossSessions() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }

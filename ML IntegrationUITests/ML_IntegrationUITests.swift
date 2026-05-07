@@ -47,13 +47,13 @@ final class ML_IntegrationUITests: XCTestCase {
         app.launchArguments.append(contentsOf: ["-ui-force-schema-invalid", "-ui-enable-repair-action"])
         app.launch()
 
-        let warning = app.staticTexts["Warning: window policy schema is invalid. Coherence behavior may be unstable until repaired."]
-        guard warning.waitForExistence(timeout: 20) else {
-            throw XCTSkip("Schema warning not exposed in current UI test runner session.")
+        let warningContainer = app.otherElements["coherence-schema-warning-container"]
+        guard warningContainer.waitForExistence(timeout: 10) else {
+            throw XCTSkip("Schema warning container not exposed in current UI test runner session.")
         }
 
         let repairButton = app.buttons["Repair Coherence Policy"]
-        guard repairButton.waitForExistence(timeout: 20) else {
+        guard repairButton.waitForExistence(timeout: 10) else {
             throw XCTSkip("Repair action not exposed in current UI test runner session.")
         }
         repairButton.tap()

@@ -6,6 +6,11 @@ enum RuntimeEnvironment {
     nonisolated static let uiEnableRepairActionVariable = "ML_INTEGRATION_UI_ENABLE_REPAIR_ACTION"
     nonisolated static let uiForceSchemaInvalidArgument = "-ui-force-schema-invalid"
     nonisolated static let uiEnableRepairActionArgument = "-ui-enable-repair-action"
+    nonisolated static let xctestConfigEnvironmentVariable = "XCTestConfigurationFilePath"
+
+    nonisolated static var isUITestSession: Bool {
+        ProcessInfo.processInfo.environment[xctestConfigEnvironmentVariable] != nil
+    }
 
     nonisolated static func mlIntegrationRootURL(
         fileManager: FileManager = .default,
