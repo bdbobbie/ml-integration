@@ -1611,6 +1611,22 @@ struct ContentView: View {
                                 coherenceFlagRow(title: "Window policy schema", ready: runtimeWorkbench.coherenceWindowPolicySchemaValid)
                             }
 
+                            if runtimeWorkbench.coherenceWindowPolicySchemaInvalid {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Warning: window policy schema is invalid. Coherence behavior may be unstable until repaired.")
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                    Button("Repair Coherence Policy") {
+                                        Task {
+                                            await runtimeWorkbench.repairCoherencePolicy()
+                                            presentInfo(runtimeWorkbench.healthStatusMessage)
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(!hasManagedVM || isCreatingVM)
+                                }
+                            }
+
                             Button("Assess Device/Media Readiness") {
                                 Task {
                                     await runtimeWorkbench.assessDeviceMediaReadiness()

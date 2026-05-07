@@ -1579,6 +1579,7 @@ final class ML_IntegrationTests: XCTestCase {
         await viewModel.runHealthCheck()
 
         XCTAssertTrue(viewModel.coherenceWindowPolicySchemaValid)
+        XCTAssertFalse(viewModel.coherenceWindowPolicySchemaInvalid)
     }
 
     @MainActor
@@ -1614,6 +1615,7 @@ final class ML_IntegrationTests: XCTestCase {
         await viewModel.runHealthCheck()
 
         XCTAssertFalse(viewModel.coherenceWindowPolicySchemaValid)
+        XCTAssertTrue(viewModel.coherenceWindowPolicySchemaInvalid)
     }
 
     func testUninstallUsesRegistryVMPathAndRemovesRegistryEntry() async throws {

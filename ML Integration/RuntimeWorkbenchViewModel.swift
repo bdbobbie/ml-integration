@@ -71,6 +71,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var qemuRuntimeStatusMessage: String = ""
     @Published private(set) var isQEMUAvailable: Bool?
 
+    var coherenceWindowPolicySchemaInvalid: Bool {
+        healthReport.contains("WARN: Window coherence policy schema invalid")
+    }
+
     private let hostService: HostProfileService
     private let catalogService: DistributionCatalogService
     private let provisioningService: VMProvisioningService
@@ -991,6 +995,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             healthStatusMessage = "Auto-heal failed: \(error.localizedDescription)"
             await logRunEvent(stage: .autoHeal, result: .failed, vmID: vmID, message: error.localizedDescription)
         }
+    }
+
+    func repairCoherencePolicy() async {
+        await applyAutoHeal()
     }
 
     func uninstallActiveVM(removeArtifacts: Bool = true) async {
