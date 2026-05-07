@@ -2794,6 +2794,112 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testFormattedFilteredLauncherRunHistoryReturnsEmptyWhenNoMatches() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-launcher-format-filter-empty-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: MockLauncherScriptExecutor()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-format-filter-empty",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id after scaffold."); return }
+        await viewModel.prepareCoherenceEssentials()
+        guard let launcherEntry = viewModel.integrationCapabilities(for: vmID).launcherEntries.first else {
+            XCTFail("Expected launcher entry after coherence preparation.")
+            return
+        }
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: launcherEntry.id)
+
+        let text = viewModel.formattedFilteredLauncherRunHistory(
+            vmID: vmID,
+            statusFilter: .failed,
+            searchTerm: "no-hit",
+            limit: 5
+        )
+        XCTAssertEqual(text, "")
+    }
+
+    @MainActor
+    func testFormattedFilteredLauncherRunHistoryReturnsMatchingLines() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-launcher-format-filter-match-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: MockLauncherScriptExecutor()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-format-filter-match",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id after scaffold."); return }
+        await viewModel.prepareCoherenceEssentials()
+        guard let launcherEntry = viewModel.integrationCapabilities(for: vmID).launcherEntries.first else {
+            XCTFail("Expected launcher entry after coherence preparation.")
+            return
+        }
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: launcherEntry.id)
+
+        let text = viewModel.formattedFilteredLauncherRunHistory(
+            vmID: vmID,
+            statusFilter: .succeeded,
+            searchTerm: launcherEntry.name,
+            limit: 5
+        )
+        XCTAssertFalse(text.isEmpty)
+        XCTAssertTrue(text.contains(launcherEntry.name))
+        XCTAssertTrue(text.contains("Succeeded"))
+    }
+
+    @MainActor
     func testVerifySharedFolderAndClipboardPassesWhenArtifactsValid() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

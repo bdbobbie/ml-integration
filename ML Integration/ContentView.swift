@@ -2030,6 +2030,25 @@ struct ContentView: View {
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)
 
+                                    Button("Copy Filtered History") {
+                                        let text = runtimeWorkbench.formattedFilteredLauncherRunHistory(
+                                            vmID: entry.id,
+                                            statusFilter: launcherHistoryStatusFilter,
+                                            searchTerm: launcherHistorySearchTerm,
+                                            limit: 5
+                                        )
+                                        if text.isEmpty {
+                                            presentInfo("No filtered launcher history to copy for VM \(entry.vmName).")
+                                        } else {
+                                            let pasteboard = NSPasteboard.general
+                                            pasteboard.clearContents()
+                                            pasteboard.setString(text, forType: .string)
+                                            presentInfo("Copied filtered launcher history for VM \(entry.vmName).")
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
                                     Button("Clear Launcher History") {
                                         runtimeWorkbench.confirmClearLauncherRunHistory(vmID: entry.id)
                                         presentInfo(runtimeWorkbench.integrationStatusMessage)

@@ -1295,6 +1295,22 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return lines.joined(separator: "\n")
     }
 
+    func formattedFilteredLauncherRunHistory(
+        vmID: UUID,
+        statusFilter: LauncherHistoryStatusFilter,
+        searchTerm: String,
+        limit: Int = 5
+    ) -> String {
+        let lines = launcherRunHistoryPreview(
+            vmID: vmID,
+            statusFilter: statusFilter,
+            searchTerm: searchTerm,
+            limit: limit
+        )
+        guard !lines.isEmpty else { return "" }
+        return lines.joined(separator: "\n")
+    }
+
     func launcherRunHistoryPreview(
         vmID: UUID,
         statusFilter: LauncherHistoryStatusFilter,
