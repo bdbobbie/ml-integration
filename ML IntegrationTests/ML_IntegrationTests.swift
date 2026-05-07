@@ -2427,6 +2427,76 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(badge.status, .error)
     }
 
+    @MainActor
+    func testRuntimeFleetStatusSummaryIncludesIntegrationHealthRollups() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-fleet-rollup-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-rollup-healthy",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmHealthy = viewModel.activeVMID else { XCTFail("Expected healthy VM id."); return }
+        await viewModel.prepareCoherenceEssentials()
+
+        await viewModel.scaffoldInstall(
+            distribution: .debian,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-rollup-warning",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmWarning = viewModel.activeVMID else { XCTFail("Expected warning VM id."); return }
+        await viewModel.configureSharedResources()
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-rollup-error",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmError = viewModel.activeVMID else { XCTFail("Expected error VM id."); return }
+
+        XCTAssertEqual(viewModel.integrationHealthBadge(for: vmHealthy).status, .healthy)
+        XCTAssertEqual(viewModel.integrationHealthBadge(for: vmWarning).status, .warning)
+        XCTAssertEqual(viewModel.integrationHealthBadge(for: vmError).status, .error)
+
+        let summary = viewModel.runtimeFleetStatusSummary()
+        XCTAssertTrue(summary.contains("Healthy: 1"))
+        XCTAssertTrue(summary.contains("Warning: 1"))
+        XCTAssertTrue(summary.contains("Error: 1"))
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

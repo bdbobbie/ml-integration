@@ -1165,7 +1165,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     func runtimeFleetStatusSummary() -> String {
         let runningCount = activeRuntimeVMIDs.count
-        return "Runtime fleet | Installed: \(installedVMEntries.count) | Running: \(runningCount)"
+        let healthCounts = integrationHealthCounts()
+        return
+            "Runtime fleet | Installed: \(installedVMEntries.count) | Running: \(runningCount) | " +
+            "Healthy: \(healthCounts.healthy) | Warning: \(healthCounts.warning) | Error: \(healthCounts.error)"
     }
 
     func fleetEntries(filteredBy filter: FleetStateFilter) -> [VMRegistryEntry] {
@@ -1374,6 +1377,24 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         case .stopped:
             return 3
         }
+    }
+
+    private func integrationHealthCounts() -> (healthy: Int, warning: Int, error: Int) {
+        var healthy = 0
+        var warning = 0
+        var error = 0
+        for entry in installedVMEntries {
+            let badge = integrationHealthBadge(for: entry.id)
+            switch badge.status {
+            case .healthy:
+                healthy += 1
+            case .warning:
+                warning += 1
+            case .error:
+                error += 1
+            }
+        }
+        return (healthy, warning, error)
     }
 
     func escalateToDevelopers(
