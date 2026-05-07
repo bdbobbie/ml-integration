@@ -2048,6 +2048,115 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(capabilities.launcherEntries.isEmpty)
     }
 
+    @MainActor
+    func testLaunchIntegratedAppExecutesLauncherScriptAndUpdatesDiagnostics() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-launcher-exec-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let mockExecutor = MockLauncherScriptExecutor()
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: mockExecutor
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-exec",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected VM id after scaffold.")
+            return
+        }
+
+        await viewModel.prepareCoherenceEssentials()
+        guard let launcherEntry = viewModel.integrationCapabilities(for: vmID).launcherEntries.first else {
+            XCTFail("Expected launcher entry after coherence preparation.")
+            return
+        }
+
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: launcherEntry.id)
+
+        XCTAssertEqual(mockExecutor.executedScriptPaths.count, 1)
+        XCTAssertEqual(mockExecutor.executedScriptPaths.first, launcherEntry.scriptPath)
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("Launched \(launcherEntry.name)"))
+        XCTAssertEqual(viewModel.fleetDiagnostic(for: vmID)?.lastErrorMessage, nil)
+    }
+
+    @MainActor
+    func testLaunchIntegratedAppReportsMissingEntry() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-launcher-missing-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: MockLauncherScriptExecutor()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-missing",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected VM id after scaffold.")
+            return
+        }
+
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: "missing-entry")
+        XCTAssertEqual(viewModel.integrationStatusMessage, "Launcher entry is no longer available for this VM.")
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }
@@ -2972,6 +3081,20 @@ final class MockIntegrationService: IntegrationService {
     func enableRootlessLinuxApps(for vmID: UUID) async throws {
         _ = vmID
         rootlessCalls += 1
+    }
+}
+
+final class MockLauncherScriptExecutor: LauncherScriptExecuting {
+    var executedScriptPaths: [String] = []
+    var nextError: Error?
+    var nextOutput: String = ""
+
+    func executeScript(atPath path: String) async throws -> String {
+        executedScriptPaths.append(path)
+        if let nextError {
+            throw nextError
+        }
+        return nextOutput
     }
 }
 

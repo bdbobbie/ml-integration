@@ -3,6 +3,29 @@ import Combine
 import Virtualization
 import Darwin
 
+protocol LauncherScriptExecuting {
+    func executeScript(atPath path: String) async throws -> String
+}
+
+struct ProcessLauncherScriptExecutor: LauncherScriptExecuting {
+    func executeScript(atPath path: String) async throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [path]
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+        try process.run()
+        process.waitUntilExit()
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if process.terminationStatus == 0 {
+            return output
+        }
+        throw RuntimeServiceError.commandFailed(output.isEmpty ? "Launcher script failed." : output)
+    }
+}
+
 @MainActor
 final class RuntimeWorkbenchViewModel: ObservableObject {
     struct RuntimePhaseReadiness: Equatable {
@@ -116,6 +139,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private let downloader: ArtifactDownloading
     private let registry: VMRegistryManaging
     private let observability: RuntimeObservabilityLogging
+    private let launcherExecutor: LauncherScriptExecuting
 
     private var lastCatalogRefresh: Date?
     private let sourceMonitoringInterval: TimeInterval = 60 * 30
@@ -133,7 +157,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         escalationService: EscalationService? = nil,
         downloader: ArtifactDownloading? = nil,
         registry: VMRegistryManaging? = nil,
-        observability: RuntimeObservabilityLogging? = nil
+        observability: RuntimeObservabilityLogging? = nil,
+        launcherExecutor: LauncherScriptExecuting? = nil
     ) {
         self.hostService = hostService ?? DefaultHostProfileService()
         self.catalogService = catalogService ?? OfficialDistributionCatalogService()
@@ -148,6 +173,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         self.downloader = downloader ?? ResumableArtifactDownloader()
         self.registry = registry ?? PersistentVMRegistryStore()
         self.observability = observability ?? FileRuntimeObservabilityStore()
+        self.launcherExecutor = launcherExecutor ?? ProcessLauncherScriptExecutor()
 
         traceVM("Build marker: VM-LAUNCH-DIAG-2026-04-23T00:00Z")
         Task {
@@ -1212,6 +1238,41 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     func integrationCapabilities(for vmID: UUID) -> VMIntegrationCapabilities {
         integrationCapabilitiesByVMID[vmID] ?? .empty
+    }
+
+    func launchIntegratedApp(vmID: UUID, launcherEntryID: String) async {
+        syncIntegrationCapabilities(for: vmID)
+        let capabilities = integrationCapabilities(for: vmID)
+        guard let launcherEntry = capabilities.launcherEntries.first(where: { $0.id == launcherEntryID }) else {
+            integrationStatusMessage = "Launcher entry is no longer available for this VM."
+            return
+        }
+        guard FileManager.default.fileExists(atPath: launcherEntry.scriptPath) else {
+            integrationStatusMessage = "Launcher script is missing for \(launcherEntry.name)."
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "launcher-\(launcherEntry.name)",
+                lastActionAt: Date(),
+                lastErrorMessage: integrationStatusMessage
+            )
+            return
+        }
+        do {
+            let output = try await launcherExecutor.executeScript(atPath: launcherEntry.scriptPath)
+            let suffix = output.isEmpty ? "" : " Output: \(output)"
+            integrationStatusMessage = "Launched \(launcherEntry.name) for VM \(vmID.uuidString).\(suffix)"
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "launcher-\(launcherEntry.name)",
+                lastActionAt: Date(),
+                lastErrorMessage: nil
+            )
+        } catch {
+            integrationStatusMessage = "Launcher execution failed for \(launcherEntry.name): \(error.localizedDescription)"
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "launcher-\(launcherEntry.name)",
+                lastActionAt: Date(),
+                lastErrorMessage: integrationStatusMessage
+            )
+        }
     }
 
     private func fleetSortPriority(for state: VMRuntimeState) -> Int {

@@ -1732,6 +1732,25 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)
+
+                                    Menu("Launch App") {
+                                        if integrationCaps.launcherEntries.isEmpty {
+                                            Text("No launcher entries")
+                                        } else {
+                                            ForEach(integrationCaps.launcherEntries) { launcherEntry in
+                                                Button(launcherEntry.name) {
+                                                    Task {
+                                                        await runtimeWorkbench.launchIntegratedApp(
+                                                            vmID: entry.id,
+                                                            launcherEntryID: launcherEntry.id
+                                                        )
+                                                        presentInfo(runtimeWorkbench.integrationStatusMessage)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .disabled(isCreatingVM || integrationCaps.launcherEntries.isEmpty)
                                 }
                                 .padding(8)
                                 .background((selectedInstalledVMID == entry.id ? Color.blue.opacity(0.12) : Color.clear))
