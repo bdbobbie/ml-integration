@@ -850,6 +850,46 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testAssessDisplayPlanReadinessAllowsSingleDisplayOnWeakHost() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockWeakHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        viewModel.setV2DisplayTargetCount(1)
+
+        await viewModel.assessDisplayPlanReadiness()
+
+        XCTAssertEqual(viewModel.v2DisplayTargetCount, 1)
+        XCTAssertTrue(viewModel.v2MultiDisplayPlanReady)
+        XCTAssertTrue(viewModel.displayPlanStatusSummary.contains("v2 target 1 displays: ready"))
+    }
+
+    @MainActor
+    func testSetV2DisplayTargetCountClampsRange() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        viewModel.setV2DisplayTargetCount(0)
+        XCTAssertEqual(viewModel.v2DisplayTargetCount, 1)
+        viewModel.setV2DisplayTargetCount(99)
+        XCTAssertEqual(viewModel.v2DisplayTargetCount, 3)
+    }
+
+    @MainActor
     func testObservabilityCapturesCoherenceAndReadinessStages() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }

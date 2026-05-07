@@ -2212,6 +2212,24 @@ struct ContentView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 
+                            HStack(spacing: 8) {
+                                Text("v2 target displays")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                Picker(
+                                    "v2 target displays",
+                                    selection: Binding(
+                                        get: { runtimeWorkbench.v2DisplayTargetCount },
+                                        set: { runtimeWorkbench.setV2DisplayTargetCount($0) }
+                                    )
+                                ) {
+                                    Text("1").tag(1)
+                                    Text("2").tag(2)
+                                    Text("3").tag(3)
+                                }
+                                .pickerStyle(.segmented)
+                            }
+
                             VStack(alignment: .leading, spacing: 4) {
                                 coherenceFlagRow(
                                     title: "v1 display lock (\(runtimeWorkbench.v1DisplayCountLocked))",

@@ -2413,16 +2413,23 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
         await logRunEvent(stage: .displayPlanReadiness, result: .inProgress, vmID: activeVMID, message: "Assessing v1/v2 display plan readiness.")
         let canScaleBeyondV1 = profile.cpuCores >= 8 && profile.memoryGB >= 16 && VZVirtualMachine.isSupported
-        v2MultiDisplayPlanReady = canScaleBeyondV1
+        let requestedDisplays = max(1, min(3, v2DisplayTargetCount))
+        v2DisplayTargetCount = requestedDisplays
+        let ready = requestedDisplays == 1 || canScaleBeyondV1
+        v2MultiDisplayPlanReady = ready
         displayPlanStatusSummary =
             "v1 locked to \(v1DisplayCountLocked) display. " +
-            "v2 target \(v2DisplayTargetCount) displays: \(canScaleBeyondV1 ? "ready" : "pending")"
+            "v2 target \(v2DisplayTargetCount) displays: \(ready ? "ready" : "pending")"
         await logRunEvent(
             stage: .displayPlanReadiness,
-            result: canScaleBeyondV1 ? .success : .failed,
+            result: ready ? .success : .failed,
             vmID: activeVMID,
             message: displayPlanStatusSummary
         )
+    }
+
+    func setV2DisplayTargetCount(_ count: Int) {
+        v2DisplayTargetCount = max(1, min(3, count))
     }
 
     func runPhaseSweep() async -> String {
