@@ -1283,6 +1283,45 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         launcherRunHistoryByVMID[vmID] ?? []
     }
 
+    func exportLauncherRunHistory(vmID: UUID) {
+        let history = launcherRunHistory(for: vmID)
+        guard !history.isEmpty else {
+            integrationStatusMessage = "No launcher history to export for VM \(vmID.uuidString)."
+            return
+        }
+        let formatter = ISO8601DateFormatter()
+        let serializable = history.map { state in
+            PersistedLauncherRunState(
+                launcherName: state.launcherName,
+                statusRaw: state.status.rawValue,
+                updatedAtISO8601: formatter.string(from: state.updatedAt),
+                message: state.message
+            )
+        }
+        let exportDirectory = launcherRunHistoryExportsDirectoryURL()
+        try? FileManager.default.createDirectory(at: exportDirectory, withIntermediateDirectories: true)
+        let fileURL = exportDirectory.appendingPathComponent("launcher-history-\(vmID.uuidString)-\(formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")).json")
+        do {
+            let data = try JSONEncoder().encode(serializable)
+            try data.write(to: fileURL, options: [.atomic])
+            integrationStatusMessage = "Exported launcher history: \(fileURL.path)"
+        } catch {
+            integrationStatusMessage = "Launcher history export failed: \(error.localizedDescription)"
+        }
+    }
+
+    func confirmClearLauncherRunHistory(vmID: UUID) {
+        guard !integrationRemediationRequireArming || integrationRemediationDeletionArmed else {
+            integrationStatusMessage = "Launcher history clear blocked. Arm deletion first."
+            return
+        }
+        launcherRunHistoryByVMID[vmID] = []
+        launcherRunStateByVMID[vmID] = nil
+        persistLauncherRunHistory()
+        disarmIntegrationRemediationDeletion()
+        integrationStatusMessage = "Cleared launcher history for VM \(vmID.uuidString)."
+    }
+
     func integrationHealthBadge(for vmID: UUID) -> (status: IntegrationHealthBadgeStatus, summary: String) {
         syncIntegrationCapabilities(for: vmID)
         let capabilities = integrationCapabilities(for: vmID)
@@ -2487,6 +2526,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     private func launcherRunHistoryFileURL() -> URL {
         baseDirectory().appendingPathComponent("launcher-run-history.json", isDirectory: false)
+    }
+
+    private func launcherRunHistoryExportsDirectoryURL() -> URL {
+        baseDirectory().appendingPathComponent("launcher-run-history-exports", isDirectory: true)
     }
 
     private func recordLauncherRunState(vmID: UUID, state: LauncherRunState) {

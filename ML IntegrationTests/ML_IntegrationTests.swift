@@ -2383,6 +2383,156 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testClearLauncherRunHistoryBlockedWhenNotArmed() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-launcher-history-clear-blocked-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: MockLauncherScriptExecutor()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-history-clear-blocked",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id after scaffold."); return }
+        await viewModel.prepareCoherenceEssentials()
+        guard let launcherEntry = viewModel.integrationCapabilities(for: vmID).launcherEntries.first else {
+            XCTFail("Expected launcher entry after coherence preparation.")
+            return
+        }
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: launcherEntry.id)
+        XCTAssertFalse(viewModel.launcherRunHistory(for: vmID).isEmpty)
+
+        viewModel.confirmClearLauncherRunHistory(vmID: vmID)
+        XCTAssertFalse(viewModel.launcherRunHistory(for: vmID).isEmpty)
+        XCTAssertEqual(viewModel.integrationStatusMessage, "Launcher history clear blocked. Arm deletion first.")
+    }
+
+    @MainActor
+    func testClearLauncherRunHistorySucceedsWhenArmed() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-launcher-history-clear-armed-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: MockLauncherScriptExecutor()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-history-clear-armed",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id after scaffold."); return }
+        await viewModel.prepareCoherenceEssentials()
+        guard let launcherEntry = viewModel.integrationCapabilities(for: vmID).launcherEntries.first else {
+            XCTFail("Expected launcher entry after coherence preparation.")
+            return
+        }
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: launcherEntry.id)
+        viewModel.armIntegrationRemediationDeletion()
+        viewModel.confirmClearLauncherRunHistory(vmID: vmID)
+
+        XCTAssertTrue(viewModel.launcherRunHistory(for: vmID).isEmpty)
+        XCTAssertNil(viewModel.launcherRunState(for: vmID))
+        XCTAssertFalse(viewModel.integrationRemediationDeletionArmed)
+    }
+
+    @MainActor
+    func testExportLauncherRunHistoryWritesJsonArtifact() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-launcher-history-export-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: MockLauncherScriptExecutor()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-history-export",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id after scaffold."); return }
+        await viewModel.prepareCoherenceEssentials()
+        guard let launcherEntry = viewModel.integrationCapabilities(for: vmID).launcherEntries.first else {
+            XCTFail("Expected launcher entry after coherence preparation.")
+            return
+        }
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: launcherEntry.id)
+
+        viewModel.exportLauncherRunHistory(vmID: vmID)
+
+        let exportDir = RuntimeEnvironment.mlIntegrationRootURL().appendingPathComponent("launcher-run-history-exports", isDirectory: true)
+        let files = try FileManager.default.contentsOfDirectory(at: exportDir, includingPropertiesForKeys: nil)
+        XCTAssertFalse(files.isEmpty)
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("Exported launcher history:"))
+    }
+
+    @MainActor
     func testVerifySharedFolderAndClipboardPassesWhenArtifactsValid() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

@@ -1975,6 +1975,20 @@ struct ContentView: View {
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)
 
+                                    Button("Export Launcher History") {
+                                        runtimeWorkbench.exportLauncherRunHistory(vmID: entry.id)
+                                        presentInfo(runtimeWorkbench.integrationStatusMessage)
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
+                                    Button("Clear Launcher History") {
+                                        runtimeWorkbench.confirmClearLauncherRunHistory(vmID: entry.id)
+                                        presentInfo(runtimeWorkbench.integrationStatusMessage)
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
                                     Menu("Launch App") {
                                         if integrationCaps.launcherEntries.isEmpty {
                                             Text("No launcher entries")
