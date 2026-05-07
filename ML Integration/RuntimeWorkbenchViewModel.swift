@@ -1281,6 +1281,40 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
     }
 
+    func fixAllIntegrationWarnings() async {
+        let targets = installedVMEntries.filter { entry in
+            let status = integrationHealthBadge(for: entry.id).status
+            return status == .warning || status == .error
+        }
+        guard !targets.isEmpty else {
+            integrationStatusMessage = "No warning/error VMs require remediation."
+            return
+        }
+
+        var fixedCount = 0
+        var remainingCount = 0
+        var failedNames: [String] = []
+
+        for entry in targets {
+            await runIntegrationQuickRemediation(vmID: entry.id)
+            let statusAfter = integrationHealthBadge(for: entry.id).status
+            if statusAfter == .healthy {
+                fixedCount += 1
+            } else {
+                remainingCount += 1
+                failedNames.append(entry.vmName)
+            }
+        }
+
+        if remainingCount == 0 {
+            integrationStatusMessage = "Fixed \(fixedCount) VM(s). All integration warnings cleared."
+        } else {
+            integrationStatusMessage =
+                "Fixed \(fixedCount) VM(s); \(remainingCount) VM(s) still need attention: " +
+                failedNames.joined(separator: ", ")
+        }
+    }
+
     func launchIntegratedApp(vmID: UUID, launcherEntryID: String) async {
         syncIntegrationCapabilities(for: vmID)
         let capabilities = integrationCapabilities(for: vmID)

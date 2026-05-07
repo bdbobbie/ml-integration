@@ -2497,6 +2497,107 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(summary.contains("Error: 1"))
     }
 
+    @MainActor
+    func testFixAllIntegrationWarningsAggregatesResultAcrossFleet() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-fix-all-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-fix-warning",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmWarning = viewModel.activeVMID else { XCTFail("Expected warning VM id."); return }
+        await viewModel.configureSharedResources()
+
+        await viewModel.scaffoldInstall(
+            distribution: .debian,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-fix-error",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmError = viewModel.activeVMID else { XCTFail("Expected error VM id."); return }
+
+        XCTAssertEqual(viewModel.integrationHealthBadge(for: vmWarning).status, .warning)
+        XCTAssertEqual(viewModel.integrationHealthBadge(for: vmError).status, .error)
+
+        await viewModel.fixAllIntegrationWarnings()
+
+        XCTAssertEqual(viewModel.integrationHealthBadge(for: vmWarning).status, .healthy)
+        XCTAssertEqual(viewModel.integrationHealthBadge(for: vmError).status, .healthy)
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("Fixed 2 VM"))
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("warnings cleared"))
+    }
+
+    @MainActor
+    func testFixAllIntegrationWarningsNoopWhenFleetHealthy() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-fix-all-noop-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-fix-noop",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id."); return }
+        await viewModel.prepareCoherenceEssentials()
+        XCTAssertEqual(viewModel.integrationHealthBadge(for: vmID).status, .healthy)
+
+        await viewModel.fixAllIntegrationWarnings()
+        XCTAssertEqual(viewModel.integrationStatusMessage, "No warning/error VMs require remediation.")
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

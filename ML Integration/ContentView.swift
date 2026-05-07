@@ -1682,6 +1682,15 @@ struct ContentView: View {
                             .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             .disabled(isCreatingVM || runtimeWorkbench.activeRuntimeVMIDs.isEmpty)
 
+                            Button("Fix All Warnings") {
+                                Task {
+                                    await runtimeWorkbench.fixAllIntegrationWarnings()
+                                    presentInfo(runtimeWorkbench.integrationStatusMessage)
+                                }
+                            }
+                            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                            .disabled(isCreatingVM)
+
                             ForEach(runtimeWorkbench.fleetEntries(filteredBy: runtimeFleetFilter)) { entry in
                                 let vmState = runtimeWorkbench.runtimeState(for: entry.id)
                                 let diagnostic = runtimeWorkbench.fleetDiagnostic(for: entry.id)
