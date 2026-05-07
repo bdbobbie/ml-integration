@@ -22,6 +22,11 @@ final class DefaultHealthAndRepairService: HealthAndRepairService {
         report.append(fileExists(paths.windowPolicyConfig)
             ? "OK: Window coherence policy exists"
             : "WARN: Window coherence policy is missing")
+        if fileExists(paths.windowPolicyConfig) {
+            report.append(validateWindowPolicyFile(paths.windowPolicyConfig)
+                ? "OK: Window coherence policy schema valid"
+                : "WARN: Window coherence policy schema invalid")
+        }
 
         report.append(fileExists(paths.launcherManifest)
             ? "OK: Launcher manifest exists"
@@ -71,6 +76,24 @@ final class DefaultHealthAndRepairService: HealthAndRepairService {
 
     private func fileExists(_ url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private func validateWindowPolicyFile(_ policyURL: URL) -> Bool {
+        guard
+            let data = try? Data(contentsOf: policyURL),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let windowBehavior = object["windowBehavior"] as? [String: Any],
+            let syncPolicy = object["syncPolicy"] as? [String: Any]
+        else {
+            return false
+        }
+
+        let hasFocusFlag = windowBehavior["focusFollowsHostActivation"] is Bool
+        let hasZOrderFlag = windowBehavior["preserveZOrderOnAttach"] is Bool
+        let hasResizeFlag = windowBehavior["allowHostDrivenResize"] is Bool
+        let hasThrottle = syncPolicy["throttleMs"] is Int
+
+        return hasFocusFlag && hasZOrderFlag && hasResizeFlag && hasThrottle
     }
 
     private func integrationPaths(for vmID: UUID) -> IntegrationHealthPaths {
