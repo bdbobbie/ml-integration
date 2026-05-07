@@ -229,6 +229,13 @@ struct IntegrationRemediationRunReport: Codable, Equatable, Identifiable {
     let vmResults: [VMResult]
 }
 
+struct IntegrationRemediationReportHistoryEntry: Identifiable, Equatable {
+    let id: String
+    let path: String
+    let fileName: String
+    let modifiedAt: Date
+}
+
 enum RoadmapPhaseStatus: String, CaseIterable, Identifiable, Codable {
     case pending
     case inProgress

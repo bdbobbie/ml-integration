@@ -1707,6 +1707,30 @@ struct ContentView: View {
                                 .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             }
 
+                            HStack(spacing: 8) {
+                                Text("Remediation History")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Button("Refresh History") {
+                                    runtimeWorkbench.refreshIntegrationRemediationReportHistory()
+                                }
+                                .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                            }
+
+                            ForEach(runtimeWorkbench.integrationRemediationReportHistory.prefix(5)) { reportEntry in
+                                HStack(spacing: 8) {
+                                    Text(reportEntry.fileName)
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Button("Load") {
+                                        runtimeWorkbench.loadIntegrationRemediationReport(atPath: reportEntry.path)
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                }
+                            }
+
                             ForEach(runtimeWorkbench.fleetEntries(filteredBy: runtimeFleetFilter)) { entry in
                                 let vmState = runtimeWorkbench.runtimeState(for: entry.id)
                                 let diagnostic = runtimeWorkbench.fleetDiagnostic(for: entry.id)

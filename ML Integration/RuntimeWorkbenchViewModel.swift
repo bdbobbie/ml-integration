@@ -102,6 +102,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
     @Published private(set) var lastIntegrationRemediationReportPath: String = ""
     @Published private(set) var lastIntegrationRemediationReportSummary: String = ""
+    @Published private(set) var integrationRemediationReportHistory: [IntegrationRemediationReportHistoryEntry] = []
 
     @Published private(set) var downloadStatusMessage: String = ""
     @Published private(set) var downloadedInstallerPath: String = ""
@@ -1335,6 +1336,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             lastIntegrationRemediationReportPath = path
             lastIntegrationRemediationReportSummary =
                 "Attempted: \(report.attemptedCount) | Fixed: \(report.fixedCount) | Remaining: \(report.remainingCount)"
+            refreshIntegrationRemediationReportHistory()
         } catch {
             lastIntegrationRemediationReportPath = ""
             lastIntegrationRemediationReportSummary = ""
@@ -1481,7 +1483,42 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             lastIntegrationRemediationReportSummary = ""
             return
         }
-        let url = URL(fileURLWithPath: lastIntegrationRemediationReportPath)
+        loadIntegrationRemediationReportSummary(fromPath: lastIntegrationRemediationReportPath)
+    }
+
+    func loadIntegrationRemediationReport(atPath path: String) {
+        lastIntegrationRemediationReportPath = path
+        loadIntegrationRemediationReportSummary(fromPath: path)
+    }
+
+    func refreshIntegrationRemediationReportHistory() {
+        let directory = baseDirectory().appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        guard let fileURLs = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            integrationRemediationReportHistory = []
+            return
+        }
+        let entries = fileURLs
+            .filter { $0.pathExtension.lowercased() == "json" }
+            .map { url in
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                let modifiedAt = values?.contentModificationDate ?? .distantPast
+                return IntegrationRemediationReportHistoryEntry(
+                    id: url.path,
+                    path: url.path,
+                    fileName: url.lastPathComponent,
+                    modifiedAt: modifiedAt
+                )
+            }
+            .sorted { $0.modifiedAt > $1.modifiedAt }
+        integrationRemediationReportHistory = entries
+    }
+
+    private func loadIntegrationRemediationReportSummary(fromPath path: String) {
+        let url = URL(fileURLWithPath: path)
         guard
             let data = try? Data(contentsOf: url),
             let report = try? JSONDecoder().decode(IntegrationRemediationRunReport.self, from: data)

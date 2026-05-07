@@ -2654,6 +2654,98 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Fixed:"))
     }
 
+    @MainActor
+    func testRefreshIntegrationRemediationReportHistoryIncludesLatestReport() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-remediation-history-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-history",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        await viewModel.configureSharedResources()
+        await viewModel.fixAllIntegrationWarnings()
+
+        let expectedPath = viewModel.lastIntegrationRemediationReportPath
+        XCTAssertFalse(expectedPath.isEmpty)
+
+        viewModel.refreshIntegrationRemediationReportHistory()
+        XCTAssertFalse(viewModel.integrationRemediationReportHistory.isEmpty)
+        XCTAssertEqual(viewModel.integrationRemediationReportHistory.first?.path, expectedPath)
+    }
+
+    @MainActor
+    func testLoadIntegrationRemediationReportSetsPathAndSummary() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-remediation-load-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-load-report",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        await viewModel.configureSharedResources()
+        await viewModel.fixAllIntegrationWarnings()
+
+        let savedPath = viewModel.lastIntegrationRemediationReportPath
+        XCTAssertFalse(savedPath.isEmpty)
+
+        // Reset then load from selected path.
+        viewModel.loadIntegrationRemediationReport(atPath: savedPath)
+        XCTAssertEqual(viewModel.lastIntegrationRemediationReportPath, savedPath)
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Attempted:"))
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportSummary.contains("Remaining:"))
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }
