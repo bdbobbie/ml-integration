@@ -808,6 +808,73 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testAssessDeviceMediaReadinessDiscoversUSBDevicesOnCapableHost() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.assessDeviceMediaReadiness()
+
+        XCTAssertFalse(viewModel.availableUSBDevices.isEmpty)
+        XCTAssertNotNil(viewModel.selectedUSBDeviceID)
+        XCTAssertTrue(viewModel.usbPassthroughStatusMessage.contains("Detected"))
+    }
+
+    @MainActor
+    func testAttachDetachUSBWorkflowUpdatesStatusAndReadiness() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.assessDeviceMediaReadiness()
+        guard let selected = viewModel.selectedUSBDeviceID else {
+            XCTFail("Expected selected USB device.")
+            return
+        }
+        viewModel.attachSelectedUSBDevice()
+        XCTAssertTrue(viewModel.attachedUSBDeviceIDs.contains(selected))
+        XCTAssertTrue(viewModel.deviceUSBReady)
+        XCTAssertTrue(viewModel.usbPassthroughStatusMessage.contains("Attached USB device"))
+
+        viewModel.detachSelectedUSBDevice()
+        XCTAssertFalse(viewModel.attachedUSBDeviceIDs.contains(selected))
+        XCTAssertFalse(viewModel.deviceUSBReady)
+        XCTAssertTrue(viewModel.usbPassthroughStatusMessage.contains("Detached USB device"))
+    }
+
+    @MainActor
+    func testAttachUSBWithoutSelectionReturnsGuidance() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await viewModel.assessDeviceMediaReadiness()
+        viewModel.selectUSBDevice(nil)
+        viewModel.attachSelectedUSBDevice()
+        XCTAssertEqual(viewModel.usbPassthroughStatusMessage, "Select a USB device first.")
+    }
+
+    @MainActor
     func testAssessDisplayPlanReadinessMarksV2ReadyOnCapableHost() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

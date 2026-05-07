@@ -234,6 +234,11 @@ enum LauncherHistoryStatusFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+struct USBPassthroughDevice: Identifiable, Equatable {
+    let id: String
+    let name: String
+}
+
 enum IntegrationHealthBadgeStatus: String, Equatable, Codable {
     case healthy
     case warning

@@ -2198,6 +2198,50 @@ struct ContentView: View {
                                 coherenceFlagRow(title: "USB passthrough", ready: runtimeWorkbench.deviceUSBReady)
                             }
 
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("USB Passthrough")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Picker(
+                                    "USB device",
+                                    selection: Binding(
+                                        get: { runtimeWorkbench.selectedUSBDeviceID ?? "" },
+                                        set: { runtimeWorkbench.selectUSBDevice($0.isEmpty ? nil : $0) }
+                                    )
+                                ) {
+                                    if runtimeWorkbench.availableUSBDevices.isEmpty {
+                                        Text("No devices").tag("")
+                                    } else {
+                                        ForEach(runtimeWorkbench.availableUSBDevices) { device in
+                                            Text(device.name).tag(device.id)
+                                        }
+                                    }
+                                }
+                                .modifier(WhiteOutlinedControl())
+
+                                HStack(spacing: 8) {
+                                    Button("Attach USB") {
+                                        runtimeWorkbench.attachSelectedUSBDevice()
+                                        presentInfo(runtimeWorkbench.usbPassthroughStatusMessage)
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
+                                    Button("Detach USB") {
+                                        runtimeWorkbench.detachSelectedUSBDevice()
+                                        presentInfo(runtimeWorkbench.usbPassthroughStatusMessage)
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+                                }
+
+                                if !runtimeWorkbench.usbPassthroughStatusMessage.isEmpty {
+                                    Text(runtimeWorkbench.usbPassthroughStatusMessage)
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
                             Button("Assess Display Plan (v1/v2)") {
                                 Task {
                                     await runtimeWorkbench.assessDisplayPlanReadiness()

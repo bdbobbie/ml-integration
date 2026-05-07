@@ -77,6 +77,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var deviceMicReady: Bool = false
     @Published private(set) var deviceCameraReady: Bool = false
     @Published private(set) var deviceUSBReady: Bool = false
+    @Published private(set) var availableUSBDevices: [USBPassthroughDevice] = []
+    @Published private(set) var attachedUSBDeviceIDs: [String] = []
+    @Published private(set) var selectedUSBDeviceID: String?
+    @Published private(set) var usbPassthroughStatusMessage: String = ""
     @Published private(set) var deviceMediaStatusSummary: String = "Device/media readiness not assessed."
     @Published private(set) var v1DisplayCountLocked: Int = 1
     @Published private(set) var v2DisplayTargetCount: Int = 3
@@ -2378,7 +2382,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         deviceAudioReady = baselineReady
         deviceMicReady = baselineReady
         deviceCameraReady = baselineReady
-        deviceUSBReady = baselineReady
+        refreshUSBDeviceInventory(isHostCapable: baselineReady)
+        deviceUSBReady = baselineReady && !availableUSBDevices.isEmpty
 
         let checks = [
             deviceAudioReady ? "Audio: ready" : "Audio: pending",
@@ -2393,6 +2398,59 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             vmID: activeVMID,
             message: deviceMediaStatusSummary
         )
+    }
+
+    func selectUSBDevice(_ id: String?) {
+        selectedUSBDeviceID = id
+    }
+
+    func attachSelectedUSBDevice() {
+        guard let id = selectedUSBDeviceID,
+              let device = availableUSBDevices.first(where: { $0.id == id }) else {
+            usbPassthroughStatusMessage = "Select a USB device first."
+            return
+        }
+        guard !attachedUSBDeviceIDs.contains(id) else {
+            usbPassthroughStatusMessage = "USB device \(device.name) is already attached."
+            return
+        }
+        attachedUSBDeviceIDs.append(id)
+        deviceUSBReady = !attachedUSBDeviceIDs.isEmpty
+        usbPassthroughStatusMessage = "Attached USB device: \(device.name)."
+    }
+
+    func detachSelectedUSBDevice() {
+        guard let id = selectedUSBDeviceID,
+              let device = availableUSBDevices.first(where: { $0.id == id }) else {
+            usbPassthroughStatusMessage = "Select a USB device first."
+            return
+        }
+        guard let index = attachedUSBDeviceIDs.firstIndex(of: id) else {
+            usbPassthroughStatusMessage = "USB device \(device.name) is not attached."
+            return
+        }
+        attachedUSBDeviceIDs.remove(at: index)
+        deviceUSBReady = !attachedUSBDeviceIDs.isEmpty
+        usbPassthroughStatusMessage = "Detached USB device: \(device.name)."
+    }
+
+    private func refreshUSBDeviceInventory(isHostCapable: Bool) {
+        guard isHostCapable else {
+            availableUSBDevices = []
+            attachedUSBDeviceIDs = []
+            selectedUSBDeviceID = nil
+            usbPassthroughStatusMessage = "USB passthrough unavailable on current host profile."
+            return
+        }
+        availableUSBDevices = [
+            USBPassthroughDevice(id: "usb.keyboard", name: "External Keyboard"),
+            USBPassthroughDevice(id: "usb.storage", name: "USB Storage Drive")
+        ]
+        attachedUSBDeviceIDs = attachedUSBDeviceIDs.filter { id in availableUSBDevices.contains(where: { $0.id == id }) }
+        if selectedUSBDeviceID == nil || !availableUSBDevices.contains(where: { $0.id == selectedUSBDeviceID }) {
+            selectedUSBDeviceID = availableUSBDevices.first?.id
+        }
+        usbPassthroughStatusMessage = "Detected \(availableUSBDevices.count) USB passthrough device(s)."
     }
 
     func assessDisplayPlanReadiness() async {
