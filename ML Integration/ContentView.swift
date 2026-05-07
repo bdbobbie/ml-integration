@@ -1346,6 +1346,17 @@ struct ContentView: View {
         }
     }
 
+    private func integrationHealthBadgeColor(_ status: IntegrationHealthBadgeStatus) -> Color {
+        switch status {
+        case .healthy:
+            return Color.green.opacity(0.2)
+        case .warning:
+            return Color.orange.opacity(0.22)
+        case .error:
+            return Color.red.opacity(0.22)
+        }
+    }
+
     private var uiTestSchemaWarningBanner: some View {
         HStack(spacing: 8) {
             Text("Warning: window policy schema is invalid. Coherence behavior may be unstable until repaired.")
@@ -1675,6 +1686,7 @@ struct ContentView: View {
                                 let vmState = runtimeWorkbench.runtimeState(for: entry.id)
                                 let diagnostic = runtimeWorkbench.fleetDiagnostic(for: entry.id)
                                 let integrationCaps = runtimeWorkbench.integrationCapabilities(for: entry.id)
+                                let healthBadge = runtimeWorkbench.integrationHealthBadge(for: entry.id)
                                 HStack(spacing: 10) {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("\(entry.distribution.rawValue) • \(entry.vmName)")
@@ -1706,6 +1718,12 @@ struct ContentView: View {
                                         )
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
+                                        Text(healthBadge.summary)
+                                            .font(.caption2)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 2)
+                                            .background(integrationHealthBadgeColor(healthBadge.status))
+                                            .clipShape(Capsule())
                                     }
                                     Spacer()
                                     Button("Start") {
@@ -1736,6 +1754,15 @@ struct ContentView: View {
                                     Button("Verify I/O") {
                                         Task {
                                             await runtimeWorkbench.verifySharedFolderAndClipboard(vmID: entry.id)
+                                            presentInfo(runtimeWorkbench.integrationStatusMessage)
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
+                                    Button("Quick Fix") {
+                                        Task {
+                                            await runtimeWorkbench.runIntegrationQuickRemediation(vmID: entry.id)
                                             presentInfo(runtimeWorkbench.integrationStatusMessage)
                                         }
                                     }

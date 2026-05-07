@@ -205,6 +205,12 @@ struct VMIntegrationCapabilities: Equatable {
     )
 }
 
+enum IntegrationHealthBadgeStatus: String, Equatable {
+    case healthy
+    case warning
+    case error
+}
+
 enum RoadmapPhaseStatus: String, CaseIterable, Identifiable, Codable {
     case pending
     case inProgress

@@ -1240,6 +1240,33 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         integrationCapabilitiesByVMID[vmID] ?? .empty
     }
 
+    func integrationHealthBadge(for vmID: UUID) -> (status: IntegrationHealthBadgeStatus, summary: String) {
+        syncIntegrationCapabilities(for: vmID)
+        let capabilities = integrationCapabilities(for: vmID)
+        let windowPolicyReady = verifyWindowCoherenceArtifacts(for: vmID)
+        let hasLaunchers = !capabilities.launcherEntries.isEmpty
+
+        if capabilities.sharedFoldersConfigured && capabilities.clipboardSyncEnabled && hasLaunchers && windowPolicyReady {
+            return (.healthy, "Integration healthy")
+        }
+        if hasLaunchers || capabilities.sharedFoldersConfigured || capabilities.clipboardSyncEnabled || windowPolicyReady {
+            return (.warning, "Integration partially configured")
+        }
+        return (.error, "Integration not configured")
+    }
+
+    func runIntegrationQuickRemediation(vmID: UUID) async {
+        await selectManagedVM(vmID)
+        let badge = integrationHealthBadge(for: vmID)
+        switch badge.status {
+        case .healthy:
+            await verifySharedFolderAndClipboard(vmID: vmID)
+        case .warning, .error:
+            await prepareCoherenceEssentials()
+            await verifySharedFolderAndClipboard(vmID: vmID)
+        }
+    }
+
     func launchIntegratedApp(vmID: UUID, launcherEntryID: String) async {
         syncIntegrationCapabilities(for: vmID)
         let capabilities = integrationCapabilities(for: vmID)
