@@ -100,6 +100,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var fleetDiagnosticsByVMID: [UUID: FleetRuntimeDiagnostic] = [:]
     @Published private(set) var integrationCapabilitiesByVMID: [UUID: VMIntegrationCapabilities] = [:]
     @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
+    @Published private(set) var lastIntegrationRemediationReportPath: String = ""
 
     @Published private(set) var downloadStatusMessage: String = ""
     @Published private(set) var downloadedInstallerPath: String = ""
@@ -1288,22 +1289,50 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
         guard !targets.isEmpty else {
             integrationStatusMessage = "No warning/error VMs require remediation."
+            lastIntegrationRemediationReportPath = ""
             return
         }
 
         var fixedCount = 0
         var remainingCount = 0
         var failedNames: [String] = []
+        var vmResults: [IntegrationRemediationRunReport.VMResult] = []
 
         for entry in targets {
+            let before = integrationHealthBadge(for: entry.id)
             await runIntegrationQuickRemediation(vmID: entry.id)
-            let statusAfter = integrationHealthBadge(for: entry.id).status
-            if statusAfter == .healthy {
+            let after = integrationHealthBadge(for: entry.id)
+            if after.status == .healthy {
                 fixedCount += 1
             } else {
                 remainingCount += 1
                 failedNames.append(entry.vmName)
             }
+            vmResults.append(
+                IntegrationRemediationRunReport.VMResult(
+                    vmID: entry.id,
+                    vmName: entry.vmName,
+                    statusBefore: before.status,
+                    statusAfter: after.status,
+                    summaryBefore: before.summary,
+                    summaryAfter: after.summary
+                )
+            )
+        }
+
+        do {
+            let report = IntegrationRemediationRunReport(
+                id: UUID(),
+                timestampISO8601: ISO8601DateFormatter().string(from: Date()),
+                attemptedCount: targets.count,
+                fixedCount: fixedCount,
+                remainingCount: remainingCount,
+                vmResults: vmResults
+            )
+            let path = try writeIntegrationRemediationRunReport(report)
+            lastIntegrationRemediationReportPath = path
+        } catch {
+            lastIntegrationRemediationReportPath = ""
         }
 
         if remainingCount == 0 {
@@ -1429,6 +1458,17 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             }
         }
         return (healthy, warning, error)
+    }
+
+    private func writeIntegrationRemediationRunReport(_ report: IntegrationRemediationRunReport) throws -> String {
+        let directory = baseDirectory().appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("remediation-\(report.id.uuidString).json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(report)
+        try data.write(to: fileURL, options: [.atomic])
+        return fileURL.path
     }
 
     func escalateToDevelopers(

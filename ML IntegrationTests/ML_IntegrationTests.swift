@@ -2554,6 +2554,15 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(viewModel.integrationHealthBadge(for: vmError).status, .healthy)
         XCTAssertTrue(viewModel.integrationStatusMessage.contains("Fixed 2 VM"))
         XCTAssertTrue(viewModel.integrationStatusMessage.contains("warnings cleared"))
+        XCTAssertFalse(viewModel.lastIntegrationRemediationReportPath.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: viewModel.lastIntegrationRemediationReportPath))
+
+        let reportData = try Data(contentsOf: URL(fileURLWithPath: viewModel.lastIntegrationRemediationReportPath))
+        let report = try JSONDecoder().decode(IntegrationRemediationRunReport.self, from: reportData)
+        XCTAssertEqual(report.attemptedCount, 2)
+        XCTAssertEqual(report.fixedCount, 2)
+        XCTAssertEqual(report.remainingCount, 0)
+        XCTAssertEqual(report.vmResults.count, 2)
     }
 
     @MainActor
@@ -2596,6 +2605,7 @@ final class ML_IntegrationTests: XCTestCase {
 
         await viewModel.fixAllIntegrationWarnings()
         XCTAssertEqual(viewModel.integrationStatusMessage, "No warning/error VMs require remediation.")
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportPath.isEmpty)
     }
 
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {

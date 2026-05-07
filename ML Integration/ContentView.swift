@@ -1691,6 +1691,13 @@ struct ContentView: View {
                             .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             .disabled(isCreatingVM)
 
+                            if !runtimeWorkbench.lastIntegrationRemediationReportPath.isEmpty {
+                                Text("Last remediation report: \(runtimeWorkbench.lastIntegrationRemediationReportPath)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .textSelection(.enabled)
+                            }
+
                             ForEach(runtimeWorkbench.fleetEntries(filteredBy: runtimeFleetFilter)) { entry in
                                 let vmState = runtimeWorkbench.runtimeState(for: entry.id)
                                 let diagnostic = runtimeWorkbench.fleetDiagnostic(for: entry.id)

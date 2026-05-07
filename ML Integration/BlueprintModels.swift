@@ -205,10 +205,28 @@ struct VMIntegrationCapabilities: Equatable {
     )
 }
 
-enum IntegrationHealthBadgeStatus: String, Equatable {
+enum IntegrationHealthBadgeStatus: String, Equatable, Codable {
     case healthy
     case warning
     case error
+}
+
+struct IntegrationRemediationRunReport: Codable, Equatable, Identifiable {
+    struct VMResult: Codable, Equatable {
+        let vmID: UUID
+        let vmName: String
+        let statusBefore: IntegrationHealthBadgeStatus
+        let statusAfter: IntegrationHealthBadgeStatus
+        let summaryBefore: String
+        let summaryAfter: String
+    }
+
+    let id: UUID
+    let timestampISO8601: String
+    let attemptedCount: Int
+    let fixedCount: Int
+    let remainingCount: Int
+    let vmResults: [VMResult]
 }
 
 enum RoadmapPhaseStatus: String, CaseIterable, Identifiable, Codable {
