@@ -1593,7 +1593,7 @@ struct ContentView: View {
                                     Task {
                                         presentInfo("Stopping VM...")
                                         await runtimeWorkbench.selectManagedVM(selectedInstalledVMID)
-                                        await runtimeWorkbench.stopActiveVM()
+                                        _ = await runtimeWorkbench.stopActiveVM()
                                         if let vmID = runtimeWorkbench.activeVMID ?? runtimeWorkbench.lastManagedVMID {
                                             await MainActor.run {
                                                 VMConsoleWindowManager.shared.closeConsoleWindowIfPresent(vmID: vmID)
@@ -1651,13 +1651,17 @@ struct ContentView: View {
                             .disabled(isCreatingVM || runtimeWorkbench.activeRuntimeVMIDs.isEmpty)
 
                             ForEach(runtimeWorkbench.installedVMEntries) { entry in
+                                let vmState = runtimeWorkbench.runtimeState(for: entry.id)
                                 HStack(spacing: 10) {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("\(entry.distribution.rawValue) • \(entry.vmName)")
                                             .font(.caption)
-                                        Text(runtimeWorkbench.isManagedVMRunning(entry.id) ? "Running" : "Stopped")
+                                        Text(vmState.rawValue.capitalized)
                                             .font(.caption2)
-                                            .foregroundColor(runtimeWorkbench.isManagedVMRunning(entry.id) ? .green : .secondary)
+                                            .foregroundColor(
+                                                vmState == .running ? .green :
+                                                    (vmState == .failed ? .red : .secondary)
+                                            )
                                     }
                                     Spacer()
                                     Button("Start") {
@@ -1678,7 +1682,7 @@ struct ContentView: View {
 
                                     Button("Stop") {
                                         Task {
-                                            await runtimeWorkbench.stopManagedVM(entry.id)
+                                            _ = await runtimeWorkbench.stopManagedVM(entry.id)
                                             presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
                                         }
                                     }

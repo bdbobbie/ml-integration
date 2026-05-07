@@ -1412,6 +1412,61 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testStopAllRunningVMsReportsPartialFailures() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-stop-fail-a",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmA = viewModel.activeVMID else {
+            XCTFail("Expected first VM id after scaffold.")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .debian,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-stop-fail-b",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmB = viewModel.activeVMID else {
+            XCTFail("Expected second VM id after scaffold.")
+            return
+        }
+
+        await viewModel.startManagedVM(vmA)
+        await provisioning.injectStopFailure(for: vmA)
+        await viewModel.stopManagedVM(vmA)
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("Injected stop failure"))
+
+        await viewModel.startManagedVM(vmB)
+        await viewModel.stopAllRunningVMs()
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("failed to stop 1 VM"))
+    }
+
+    @MainActor
     func testOnlyOneVMCanRunAtATimeAcrossSessions() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }
@@ -2595,6 +2650,7 @@ final class InMemoryTokenStore: GitHubTokenSecureStoring {
 
 actor MockProvisioningService: VMProvisioningService {
     private var statesByID: [UUID: VMRuntimeState] = [:]
+    private var stopFailureVMIDs: Set<UUID> = []
 
     func validate(_ request: VMInstallRequest, assets: VMInstallAssets?) async throws {
         if request.runtimeEngine == .appleVirtualization || request.runtimeEngine == .qemuFallback {
@@ -2662,6 +2718,13 @@ actor MockProvisioningService: VMProvisioningService {
         if statesByID[id] == nil {
             throw RuntimeServiceError.vmNotFound
         }
+        if stopFailureVMIDs.contains(id) {
+            throw RuntimeServiceError.invalidVMRequest("Injected stop failure for testing.")
+        }
         statesByID[id] = .stopped
+    }
+
+    func injectStopFailure(for id: UUID) {
+        stopFailureVMIDs.insert(id)
     }
 }

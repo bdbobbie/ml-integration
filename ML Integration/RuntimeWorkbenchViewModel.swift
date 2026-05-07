@@ -57,6 +57,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var lastManagedVMID: UUID?
     @Published private(set) var installedVMEntries: [VMRegistryEntry] = []
     @Published private(set) var activeRuntimeVMIDs: [UUID] = []
+    @Published private(set) var runtimeStateByVMID: [UUID: VMRuntimeState] = [:]
     @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -863,6 +864,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             installProgressFraction = 1.0
             installETAText = "ETA: 0s"
             vmRuntimeState = .stopped
+            runtimeStateByVMID[vmID] = .stopped
             vmRuntimeStatusMessage = "VM scaffold is ready and currently stopped."
             vmStatusMessage = "VM pipeline scaffolded with automation assets when supported. ID: \(vmID.uuidString). VM assets at: \(assets.vmDirectoryURL.path)"
             persistRuntimeSessionSnapshot(vmID: vmID, state: .stopped)
@@ -893,6 +895,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         traceVM("startActiveVM requested vmID=\(vmID.uuidString)")
 
         vmRuntimeState = .starting
+        runtimeStateByVMID[vmID] = .starting
         vmRuntimeStatusMessage = "Starting VM \(vmID.uuidString)..."
         await logRunEvent(stage: .vmRuntimeControl, result: .inProgress, vmID: vmID, message: "Starting VM runtime.")
 
@@ -901,6 +904,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             try await provisioningService.startVM(id: vmID)
             traceVM("startActiveVM provisioningService.startVM returned vmID=\(vmID.uuidString)")
             vmRuntimeState = .running
+            runtimeStateByVMID[vmID] = .running
             vmRuntimeStatusMessage = "VM \(vmID.uuidString) is running."
             if !activeRuntimeVMIDs.contains(vmID) {
                 activeRuntimeVMIDs.append(vmID)
@@ -918,39 +922,44 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 installLifecycleDetail = "No VM scaffold is currently installed. Install an OS first."
             }
             vmRuntimeState = .failed
+            runtimeStateByVMID[vmID] = .failed
             vmRuntimeStatusMessage = "Start VM failed: \(error.localizedDescription)"
             await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
         }
     }
 
-    func stopActiveVM() async {
+    func stopActiveVM() async -> Bool {
         guard let vmID = activeVMID ?? lastManagedVMID else {
             vmRuntimeStatusMessage = IntegrationRuntimeError.vmNotSelected.localizedDescription
             traceVM("stopActiveVM exit no vm selected")
-            return
+            return false
         }
         activeVMID = vmID
         traceVM("stopActiveVM requested vmID=\(vmID.uuidString)")
 
         vmRuntimeState = .stopping
+        runtimeStateByVMID[vmID] = .stopping
         await logRunEvent(stage: .vmRuntimeControl, result: .inProgress, vmID: vmID, message: "Stopping VM runtime.")
 
         traceVM("stopActiveVM dispatching provisioningService.stopVM vmID=\(vmID.uuidString)")
-        Task {
-            do {
-                try await provisioningService.stopVM(id: vmID)
-                traceVM("stopActiveVM provisioningService.stopVM returned vmID=\(vmID.uuidString)")
-                await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: "VM \(vmID.uuidString) stop request completed.")
-            } catch {
-                traceVM("stopActiveVM failed vmID=\(vmID.uuidString) error=\(error.localizedDescription)")
-                await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
-            }
+        do {
+            try await provisioningService.stopVM(id: vmID)
+            traceVM("stopActiveVM provisioningService.stopVM returned vmID=\(vmID.uuidString)")
+            await logRunEvent(stage: .vmRuntimeControl, result: .success, vmID: vmID, message: "VM \(vmID.uuidString) stop request completed.")
+            vmRuntimeState = .stopped
+            runtimeStateByVMID[vmID] = .stopped
+            vmRuntimeStatusMessage = "VM \(vmID.uuidString) stop request dispatched."
+            activeRuntimeVMIDs.removeAll { $0 == vmID }
+            persistRuntimeSessionSnapshot(vmID: vmID, state: .stopped)
+            return true
+        } catch {
+            traceVM("stopActiveVM failed vmID=\(vmID.uuidString) error=\(error.localizedDescription)")
+            await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
+            vmRuntimeState = .failed
+            runtimeStateByVMID[vmID] = .failed
+            vmRuntimeStatusMessage = "Stop VM failed: \(error.localizedDescription)"
+            return false
         }
-
-        vmRuntimeState = .stopped
-        vmRuntimeStatusMessage = "VM \(vmID.uuidString) stop request dispatched."
-        activeRuntimeVMIDs.removeAll { $0 == vmID }
-        persistRuntimeSessionSnapshot(vmID: vmID, state: .stopped)
     }
 
     func restartActiveVM() async {
@@ -961,7 +970,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         activeVMID = vmID
 
         vmRuntimeState = .restarting
-        await stopActiveVM()
+        _ = await stopActiveVM()
         if vmRuntimeState == .failed { return }
         await startActiveVM()
         if vmRuntimeState == .running {
@@ -1082,9 +1091,9 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         await startActiveVM()
     }
 
-    func stopManagedVM(_ id: UUID) async {
+    func stopManagedVM(_ id: UUID) async -> Bool {
         await selectManagedVM(id)
-        await stopActiveVM()
+        return await stopActiveVM()
     }
 
     func runtimeFleetStatusSummary() -> String {
@@ -1102,10 +1111,23 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             vmRuntimeStatusMessage = "No running VMs to stop."
             return
         }
+        var failedStopIDs: [UUID] = []
         for vmID in runningVMIDs {
-            await stopManagedVM(vmID)
+            let didStop = await stopManagedVM(vmID)
+            if !didStop {
+                failedStopIDs.append(vmID)
+            }
         }
-        vmRuntimeStatusMessage = "Stopped \(runningVMIDs.count) running VM(s)."
+        let stoppedCount = runningVMIDs.count - failedStopIDs.count
+        if failedStopIDs.isEmpty {
+            vmRuntimeStatusMessage = "Stopped \(runningVMIDs.count) running VM(s)."
+        } else {
+            vmRuntimeStatusMessage = "Stopped \(stoppedCount) VM(s); failed to stop \(failedStopIDs.count) VM(s)."
+        }
+    }
+
+    func runtimeState(for vmID: UUID) -> VMRuntimeState {
+        runtimeStateByVMID[vmID] ?? .stopped
     }
 
     func escalateToDevelopers(
