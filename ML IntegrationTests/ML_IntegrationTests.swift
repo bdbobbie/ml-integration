@@ -1545,6 +1545,182 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testFleetEntriesFilterByRuntimeState() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-fleet-filter-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-running",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let runningVM = viewModel.activeVMID else {
+            XCTFail("Expected running VM id.")
+            return
+        }
+        await viewModel.startManagedVM(runningVM)
+
+        await viewModel.scaffoldInstall(
+            distribution: .debian,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-failed",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let failedVM = viewModel.activeVMID else {
+            XCTFail("Expected failed VM id.")
+            return
+        }
+        await provisioning.injectStartFailure(for: failedVM)
+        await viewModel.startManagedVM(failedVM)
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-stopped",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let stoppedVM = viewModel.activeVMID else {
+            XCTFail("Expected stopped VM id.")
+            return
+        }
+
+        XCTAssertEqual(Set(viewModel.fleetEntries(filteredBy: .running).map(\.id)), [runningVM])
+        XCTAssertEqual(Set(viewModel.fleetEntries(filteredBy: .failed).map(\.id)), [failedVM])
+        XCTAssertEqual(Set(viewModel.fleetEntries(filteredBy: .stopped).map(\.id)), [stoppedVM])
+    }
+
+    @MainActor
+    func testFleetEntriesSortByStatePriorityThenName() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-fleet-sort-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "z-running",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let runningVM = viewModel.activeVMID else {
+            XCTFail("Expected running VM id.")
+            return
+        }
+        await viewModel.startManagedVM(runningVM)
+
+        await viewModel.scaffoldInstall(
+            distribution: .debian,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "a-failed",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let failedVM = viewModel.activeVMID else {
+            XCTFail("Expected failed VM id.")
+            return
+        }
+        await provisioning.injectStartFailure(for: failedVM)
+        await viewModel.startManagedVM(failedVM)
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "a-stopped",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let stoppedA = viewModel.activeVMID else {
+            XCTFail("Expected first stopped VM id.")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "b-stopped",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let stoppedB = viewModel.activeVMID else {
+            XCTFail("Expected second stopped VM id.")
+            return
+        }
+
+        let orderedNames = viewModel.fleetEntries(filteredBy: .all).map(\.vmName)
+        XCTAssertEqual(orderedNames, ["z-running", "a-failed", "a-stopped", "b-stopped"])
+        XCTAssertNotEqual(stoppedA, stoppedB)
+    }
+
+    @MainActor
     func testOnlyOneVMCanRunAtATimeAcrossSessions() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }

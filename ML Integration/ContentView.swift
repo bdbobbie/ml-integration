@@ -60,6 +60,7 @@ struct ContentView: View {
     @State private var customCatalogName: String = ""
     @State private var editingCustomEntryID: UUID?
     @State private var selectedInstalledVMID: UUID?
+    @State private var runtimeFleetFilter: RuntimeWorkbenchViewModel.FleetStateFilter = .all
     @State private var selectedRemovalMode: RemovalMode = .installedVM
     @State private var selectedRemovalDistribution: LinuxDistribution?
     @State private var manuallySelectedInstallerDistribution: LinuxDistribution?
@@ -1654,6 +1655,13 @@ struct ContentView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 
+                            Picker("Filter", selection: $runtimeFleetFilter) {
+                                ForEach(RuntimeWorkbenchViewModel.FleetStateFilter.allCases) { filter in
+                                    Text(filter.rawValue).tag(filter)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
                             Button("Stop All Running VMs") {
                                 Task {
                                     await runtimeWorkbench.stopAllRunningVMs()
@@ -1663,7 +1671,7 @@ struct ContentView: View {
                             .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             .disabled(isCreatingVM || runtimeWorkbench.activeRuntimeVMIDs.isEmpty)
 
-                            ForEach(runtimeWorkbench.installedVMEntries) { entry in
+                            ForEach(runtimeWorkbench.fleetEntries(filteredBy: runtimeFleetFilter)) { entry in
                                 let vmState = runtimeWorkbench.runtimeState(for: entry.id)
                                 let diagnostic = runtimeWorkbench.fleetDiagnostic(for: entry.id)
                                 HStack(spacing: 10) {

@@ -17,6 +17,16 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         let lastErrorMessage: String?
     }
 
+    enum FleetStateFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case running = "Running"
+        case transitioning = "Transitioning"
+        case failed = "Failed"
+        case stopped = "Stopped"
+
+        var id: String { rawValue }
+    }
+
     @Published private(set) var hostProfile: HostProfile?
     @Published private(set) var hostErrorMessage: String = ""
 
@@ -1128,6 +1138,35 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return "Runtime fleet | Installed: \(installedVMEntries.count) | Running: \(runningCount)"
     }
 
+    func fleetEntries(filteredBy filter: FleetStateFilter) -> [VMRegistryEntry] {
+        installedVMEntries
+            .filter { entry in
+                let state = runtimeState(for: entry.id)
+                switch filter {
+                case .all:
+                    return true
+                case .running:
+                    return state == .running
+                case .transitioning:
+                    return state == .starting || state == .stopping || state == .restarting
+                case .failed:
+                    return state == .failed
+                case .stopped:
+                    return state == .stopped
+                }
+            }
+            .sorted { lhs, rhs in
+                let leftState = runtimeState(for: lhs.id)
+                let rightState = runtimeState(for: rhs.id)
+                let leftPriority = fleetSortPriority(for: leftState)
+                let rightPriority = fleetSortPriority(for: rightState)
+                if leftPriority != rightPriority {
+                    return leftPriority < rightPriority
+                }
+                return lhs.vmName.localizedCaseInsensitiveCompare(rhs.vmName) == .orderedAscending
+            }
+    }
+
     func isManagedVMRunning(_ id: UUID) -> Bool {
         activeRuntimeVMIDs.contains(id)
     }
@@ -1165,6 +1204,19 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     func fleetDiagnostic(for vmID: UUID) -> FleetRuntimeDiagnostic? {
         fleetDiagnosticsByVMID[vmID]
+    }
+
+    private func fleetSortPriority(for state: VMRuntimeState) -> Int {
+        switch state {
+        case .running:
+            return 0
+        case .starting, .stopping, .restarting:
+            return 1
+        case .failed:
+            return 2
+        case .stopped:
+            return 3
+        }
     }
 
     func escalateToDevelopers(
