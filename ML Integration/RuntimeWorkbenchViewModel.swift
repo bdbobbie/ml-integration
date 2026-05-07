@@ -1512,11 +1512,16 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             .map { url in
                 let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
                 let modifiedAt = values?.contentModificationDate ?? .distantPast
+                let reportData = try? Data(contentsOf: url)
+                let report = reportData.flatMap { try? JSONDecoder().decode(IntegrationRemediationRunReport.self, from: $0) }
                 return IntegrationRemediationReportHistoryEntry(
                     id: url.path,
                     path: url.path,
                     fileName: url.lastPathComponent,
-                    modifiedAt: modifiedAt
+                    modifiedAt: modifiedAt,
+                    attemptedCount: report?.attemptedCount,
+                    fixedCount: report?.fixedCount,
+                    remainingCount: report?.remainingCount
                 )
             }
             .sorted { $0.modifiedAt > $1.modifiedAt }
@@ -1531,13 +1536,28 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         integrationRemediationReportHistory = entries
     }
 
-    func filteredIntegrationRemediationReportHistory(searchTerm: String) -> [IntegrationRemediationReportHistoryEntry] {
+    func filteredIntegrationRemediationReportHistory(
+        searchTerm: String,
+        statusFilter: IntegrationRemediationHistoryStatusFilter,
+        recentFirst: Bool
+    ) -> [IntegrationRemediationReportHistoryEntry] {
         let trimmed = searchTerm.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return integrationRemediationReportHistory }
-        return integrationRemediationReportHistory.filter { entry in
-            entry.fileName.localizedCaseInsensitiveContains(trimmed) ||
-                entry.path.localizedCaseInsensitiveContains(trimmed)
+        var entries = integrationRemediationReportHistory
+        if !trimmed.isEmpty {
+            entries = entries.filter { entry in
+                entry.fileName.localizedCaseInsensitiveContains(trimmed) ||
+                    entry.path.localizedCaseInsensitiveContains(trimmed)
+            }
         }
+        switch statusFilter {
+        case .all:
+            break
+        case .fullyFixed:
+            entries = entries.filter { ($0.remainingCount ?? 1) == 0 }
+        case .hasRemaining:
+            entries = entries.filter { ($0.remainingCount ?? 0) > 0 }
+        }
+        return entries.sorted { recentFirst ? ($0.modifiedAt > $1.modifiedAt) : ($0.modifiedAt < $1.modifiedAt) }
     }
 
     private func loadIntegrationRemediationReportSummary(fromPath path: String) {

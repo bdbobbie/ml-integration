@@ -85,6 +85,8 @@ struct ContentView: View {
     @State private var reportConsentRuntimeStatus: Bool = true
     @State private var reportConsentConfirmed: Bool = false
     @State private var remediationHistorySearchTerm: String = ""
+    @State private var remediationHistoryStatusFilter: IntegrationRemediationHistoryStatusFilter = .all
+    @State private var remediationHistoryRecentFirst: Bool = true
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @AppStorage("visualStyleMode") private var visualStyleModeRaw: String = VisualStyleMode.nativeMac.rawValue
     @AppStorage("lightIntensity") private var lightIntensity: Double = 1.0
@@ -1734,7 +1736,23 @@ struct ContentView: View {
                             TextField("Search report history", text: $remediationHistorySearchTerm)
                                 .textFieldStyle(.roundedBorder)
 
-                            ForEach(runtimeWorkbench.filteredIntegrationRemediationReportHistory(searchTerm: remediationHistorySearchTerm).prefix(5)) { reportEntry in
+                            Picker("History Status", selection: $remediationHistoryStatusFilter) {
+                                ForEach(IntegrationRemediationHistoryStatusFilter.allCases) { filter in
+                                    Text(filter.rawValue).tag(filter)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            Toggle("Recent First", isOn: $remediationHistoryRecentFirst)
+                                .font(.caption)
+
+                            ForEach(
+                                runtimeWorkbench.filteredIntegrationRemediationReportHistory(
+                                    searchTerm: remediationHistorySearchTerm,
+                                    statusFilter: remediationHistoryStatusFilter,
+                                    recentFirst: remediationHistoryRecentFirst
+                                ).prefix(5)
+                            ) { reportEntry in
                                 HStack(spacing: 8) {
                                     Text(reportEntry.fileName)
                                         .font(.caption2)

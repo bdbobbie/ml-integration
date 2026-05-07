@@ -2805,11 +2805,23 @@ final class ML_IntegrationTests: XCTestCase {
         await viewModel.fixAllIntegrationWarnings()
         viewModel.refreshIntegrationRemediationReportHistory()
 
-        let all = viewModel.filteredIntegrationRemediationReportHistory(searchTerm: "")
+        let all = viewModel.filteredIntegrationRemediationReportHistory(
+            searchTerm: "",
+            statusFilter: .all,
+            recentFirst: true
+        )
         XCTAssertFalse(all.isEmpty)
-        let jsonOnly = viewModel.filteredIntegrationRemediationReportHistory(searchTerm: ".json")
+        let jsonOnly = viewModel.filteredIntegrationRemediationReportHistory(
+            searchTerm: ".json",
+            statusFilter: .all,
+            recentFirst: true
+        )
         XCTAssertEqual(jsonOnly.count, all.count)
-        let noMatch = viewModel.filteredIntegrationRemediationReportHistory(searchTerm: "definitely-no-match-token")
+        let noMatch = viewModel.filteredIntegrationRemediationReportHistory(
+            searchTerm: "definitely-no-match-token",
+            statusFilter: .all,
+            recentFirst: true
+        )
         XCTAssertTrue(noMatch.isEmpty)
     }
 
@@ -2856,6 +2868,83 @@ final class ML_IntegrationTests: XCTestCase {
         viewModel.refreshIntegrationRemediationReportHistory()
 
         XCTAssertEqual(viewModel.integrationRemediationReportHistory.count, 25)
+    }
+
+    @MainActor
+    func testFilteredIntegrationRemediationReportHistorySupportsStatusAndSortControls() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-history-controls-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let reportsDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        let older = IntegrationRemediationRunReport(
+            id: UUID(),
+            timestampISO8601: ISO8601DateFormatter().string(from: Date()),
+            attemptedCount: 2,
+            fixedCount: 2,
+            remainingCount: 0,
+            vmResults: []
+        )
+        let newer = IntegrationRemediationRunReport(
+            id: UUID(),
+            timestampISO8601: ISO8601DateFormatter().string(from: Date().addingTimeInterval(30)),
+            attemptedCount: 2,
+            fixedCount: 1,
+            remainingCount: 1,
+            vmResults: []
+        )
+        let olderURL = reportsDirectory.appendingPathComponent("older.json")
+        let newerURL = reportsDirectory.appendingPathComponent("newer.json")
+        try encoder.encode(older).write(to: olderURL, options: [.atomic])
+        try encoder.encode(newer).write(to: newerURL, options: [.atomic])
+        let now = Date()
+        try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-120)], ofItemAtPath: olderURL.path)
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: newerURL.path)
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        viewModel.refreshIntegrationRemediationReportHistory()
+
+        let fullyFixed = viewModel.filteredIntegrationRemediationReportHistory(
+            searchTerm: "",
+            statusFilter: .fullyFixed,
+            recentFirst: true
+        )
+        XCTAssertTrue(fullyFixed.contains(where: { $0.fileName == "older.json" }))
+        XCTAssertFalse(fullyFixed.contains(where: { $0.fileName == "newer.json" }))
+
+        let hasRemaining = viewModel.filteredIntegrationRemediationReportHistory(
+            searchTerm: "",
+            statusFilter: .hasRemaining,
+            recentFirst: true
+        )
+        XCTAssertTrue(hasRemaining.contains(where: { $0.fileName == "newer.json" }))
+        XCTAssertFalse(hasRemaining.contains(where: { $0.fileName == "older.json" }))
+
+        let ascending = viewModel.filteredIntegrationRemediationReportHistory(
+            searchTerm: "",
+            statusFilter: .all,
+            recentFirst: false
+        )
+        XCTAssertEqual(ascending.first?.fileName, "older.json")
     }
 
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
