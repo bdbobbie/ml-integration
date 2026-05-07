@@ -89,6 +89,7 @@ struct ContentView: View {
     @State private var remediationHistoryRecentFirst: Bool = true
     @State private var launcherHistoryStatusFilter: LauncherHistoryStatusFilter = .all
     @State private var launcherHistorySearchTerm: String = ""
+    @State private var isOnboardingActionInProgress: Bool = false
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @AppStorage("visualStyleMode") private var visualStyleModeRaw: String = VisualStyleMode.nativeMac.rawValue
     @AppStorage("lightIntensity") private var lightIntensity: Double = 1.0
@@ -835,19 +836,72 @@ struct ContentView: View {
                 }
 
                 HStack(spacing: 8) {
+                    Button("Run Onboarding Actions") {
+                        Task {
+                            await runOnboardingActions()
+                        }
+                    }
+                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                    .disabled(isOnboardingActionInProgress)
+
                     Button("Mark Onboarding Complete") {
                         _ = blueprintPlanner.completeDeliveryAction(id: "linux-app-onboarding")
                     }
                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
-                    .disabled(!onboardingReadyForCompletion)
+                    .disabled(!onboardingReadyForCompletion || isOnboardingActionInProgress)
 
                     Button("Mark Onboarding Pending") {
                         _ = blueprintPlanner.resetDeliveryActionToPending(id: "linux-app-onboarding")
                     }
                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                    .disabled(isOnboardingActionInProgress)
+                }
+
+                if isOnboardingActionInProgress {
+                    ProgressView()
                 }
             }
             .modifier(GlassCardStyle(borderColor: sectionBorderColor))
+        }
+    }
+
+    @MainActor
+    private func runOnboardingActions() async {
+        guard !isOnboardingActionInProgress else { return }
+        isOnboardingActionInProgress = true
+        defer {
+            isOnboardingActionInProgress = false
+            syncPhaseMilestonesFromRuntimeReadiness()
+        }
+
+        if onboardingScaffoldReady == false && onboardingHasInstaller {
+            await installDownloadedDistribution(selectedCatalogDistribution)
+        }
+
+        guard let vmID = selectedInstalledVMID ?? runtimeWorkbench.activeVMID ?? runtimeWorkbench.lastManagedVMID else {
+            return
+        }
+
+        selectedInstalledVMID = vmID
+        await runtimeWorkbench.selectManagedVM(vmID)
+
+        if runtimeWorkbench.runtimeState(for: vmID) != .running {
+            await runtimeWorkbench.startActiveVM()
+        }
+
+        let capabilitiesBefore = runtimeWorkbench.integrationCapabilities(for: vmID)
+        let integrationReadyBefore = capabilitiesBefore.sharedFoldersConfigured &&
+            capabilitiesBefore.clipboardSyncEnabled &&
+            !capabilitiesBefore.launcherEntries.isEmpty
+
+        if !integrationReadyBefore {
+            await runtimeWorkbench.prepareCoherenceEssentials()
+            await runtimeWorkbench.verifySharedFolderAndClipboard(vmID: vmID)
+        }
+
+        let capabilitiesAfter = runtimeWorkbench.integrationCapabilities(for: vmID)
+        if let firstLauncher = capabilitiesAfter.launcherEntries.first {
+            await runtimeWorkbench.launchIntegratedApp(vmID: vmID, launcherEntryID: firstLauncher.id)
         }
     }
 
