@@ -3651,6 +3651,74 @@ final class ML_IntegrationTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testIntegrationRemediationDeletionEndToEndWithPersistedSettingsAndGuardedDelete() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-delete-e2e-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let reportsDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+        let reportURL = reportsDirectory.appendingPathComponent("e2e-delete.json")
+        let report = IntegrationRemediationRunReport(
+            id: UUID(),
+            timestampISO8601: ISO8601DateFormatter().string(from: Date()),
+            attemptedCount: 1,
+            fixedCount: 1,
+            remainingCount: 0,
+            vmResults: []
+        )
+        try JSONEncoder().encode(report).write(to: reportURL, options: [.atomic])
+
+        let first = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        first.configureIntegrationRemediationDeletionSafety(requireArming: true, timeoutSeconds: 10)
+        XCTAssertEqual(first.integrationRemediationDeletionPreferenceStatusMessage, "Deletion safety preferences saved.")
+
+        let second = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        XCTAssertTrue(second.integrationRemediationRequireArming)
+        XCTAssertEqual(second.integrationRemediationDeletionTimeoutSeconds, 10)
+        XCTAssertEqual(second.integrationRemediationDeletionPreferenceStatusMessage, "Deletion safety preferences loaded.")
+
+        second.confirmDeleteIntegrationRemediationReport(atPath: reportURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reportURL.path))
+        XCTAssertEqual(second.integrationRemediationHistoryDeleteStatusMessage, "Deletion blocked. Arm deletion first.")
+
+        second.armIntegrationRemediationDeletion()
+        XCTAssertTrue(second.integrationRemediationDeletionArmed)
+        XCTAssertEqual(second.integrationRemediationDeletionSecondsRemaining, 10)
+
+        second.confirmDeleteIntegrationRemediationReport(atPath: reportURL.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: reportURL.path))
+        XCTAssertFalse(second.integrationRemediationDeletionArmed)
+        XCTAssertEqual(second.integrationRemediationDeletionSecondsRemaining, 0)
+        XCTAssertTrue(second.integrationRemediationHistoryDeleteStatusMessage.contains("Deleted remediation report:"))
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }
