@@ -112,6 +112,18 @@ struct ContentView: View {
         visualStyleMode == .nativeMac
     }
 
+    private var uiForceSchemaInvalid: Bool {
+        let processInfo = ProcessInfo.processInfo
+        return processInfo.environment[RuntimeEnvironment.uiForceSchemaInvalidVariable] == "1" ||
+            processInfo.arguments.contains(RuntimeEnvironment.uiForceSchemaInvalidArgument)
+    }
+
+    private var uiForceRepairActionEnabled: Bool {
+        let processInfo = ProcessInfo.processInfo
+        return processInfo.environment[RuntimeEnvironment.uiEnableRepairActionVariable] == "1" ||
+            processInfo.arguments.contains(RuntimeEnvironment.uiEnableRepairActionArgument)
+    }
+
     private var preferredColorSchemeOverride: ColorScheme? {
         switch appearanceMode {
         case .system: return nil
@@ -1611,19 +1623,21 @@ struct ContentView: View {
                                 coherenceFlagRow(title: "Window policy schema", ready: runtimeWorkbench.coherenceWindowPolicySchemaValid)
                             }
 
-                            if runtimeWorkbench.coherenceWindowPolicySchemaInvalid {
+                            if runtimeWorkbench.coherenceWindowPolicySchemaInvalid || uiForceSchemaInvalid {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text("Warning: window policy schema is invalid. Coherence behavior may be unstable until repaired.")
                                         .font(.caption)
                                         .foregroundColor(.red)
+                                        .accessibilityIdentifier("coherence-schema-warning")
                                     Button("Repair Coherence Policy") {
                                         Task {
                                             await runtimeWorkbench.repairCoherencePolicy()
                                             presentInfo(runtimeWorkbench.healthStatusMessage)
                                         }
                                     }
+                                    .accessibilityIdentifier("repair-coherence-policy-button")
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
-                                    .disabled(!hasManagedVM || isCreatingVM)
+                                    .disabled((!hasManagedVM || isCreatingVM) && !runtimeWorkbench.isUIRepairActionForceEnabled && !uiForceRepairActionEnabled)
                                 }
                             }
 

@@ -72,7 +72,18 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var isQEMUAvailable: Bool?
 
     var coherenceWindowPolicySchemaInvalid: Bool {
-        healthReport.contains("WARN: Window coherence policy schema invalid")
+        let processInfo = ProcessInfo.processInfo
+        if processInfo.environment[RuntimeEnvironment.uiForceSchemaInvalidVariable] == "1" ||
+            processInfo.arguments.contains(RuntimeEnvironment.uiForceSchemaInvalidArgument) {
+            return true
+        }
+        return healthReport.contains("WARN: Window coherence policy schema invalid")
+    }
+
+    var isUIRepairActionForceEnabled: Bool {
+        let processInfo = ProcessInfo.processInfo
+        return processInfo.environment[RuntimeEnvironment.uiEnableRepairActionVariable] == "1" ||
+            processInfo.arguments.contains(RuntimeEnvironment.uiEnableRepairActionArgument)
     }
 
     private let hostService: HostProfileService
