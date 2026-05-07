@@ -1733,6 +1733,15 @@ struct ContentView: View {
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)
 
+                                    Button("Verify I/O") {
+                                        Task {
+                                            await runtimeWorkbench.verifySharedFolderAndClipboard(vmID: entry.id)
+                                            presentInfo(runtimeWorkbench.integrationStatusMessage)
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
                                     Menu("Launch App") {
                                         if integrationCaps.launcherEntries.isEmpty {
                                             Text("No launcher entries")

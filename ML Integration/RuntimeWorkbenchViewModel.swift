@@ -1275,6 +1275,56 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
     }
 
+    func verifySharedFolderAndClipboard(vmID: UUID) async {
+        syncIntegrationCapabilities(for: vmID)
+        let integrationDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration", isDirectory: true)
+            .appendingPathComponent(vmID.uuidString, isDirectory: true)
+        let sharedResourcesURL = integrationDirectory.appendingPathComponent("shared-resources.json")
+        guard let shared = parseSharedResourcesDocument(from: sharedResourcesURL) else {
+            coherenceSharedFoldersReady = false
+            coherenceClipboardReady = false
+            integrationStatusMessage = "Shared resource verification failed: shared-resources.json is unavailable or invalid."
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "verify-io",
+                lastActionAt: Date(),
+                lastErrorMessage: integrationStatusMessage
+            )
+            return
+        }
+
+        let missingPaths = shared.sharedFolderPaths.filter { !FileManager.default.fileExists(atPath: $0) }
+        let sharedFoldersReady = missingPaths.isEmpty && !shared.sharedFolderPaths.isEmpty
+        let clipboardReady = shared.clipboardEnabled
+        coherenceSharedFoldersReady = sharedFoldersReady
+        coherenceClipboardReady = clipboardReady
+        syncIntegrationCapabilities(for: vmID)
+        updateCoherenceStatusSummary()
+
+        if sharedFoldersReady && clipboardReady {
+            integrationStatusMessage = "Shared-folder and clipboard verification passed for VM \(vmID.uuidString)."
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "verify-io",
+                lastActionAt: Date(),
+                lastErrorMessage: nil
+            )
+        } else {
+            var issues: [String] = []
+            if !sharedFoldersReady {
+                issues.append("missing shared folders: \(missingPaths.joined(separator: ", "))")
+            }
+            if !clipboardReady {
+                issues.append("clipboard sharing disabled")
+            }
+            integrationStatusMessage = "Shared-folder/clipboard verification failed: " + issues.joined(separator: " | ")
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "verify-io",
+                lastActionAt: Date(),
+                lastErrorMessage: integrationStatusMessage
+            )
+        }
+    }
+
     private func fleetSortPriority(for state: VMRuntimeState) -> Int {
         switch state {
         case .running:
@@ -1525,13 +1575,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     private func parseSharedResources(from url: URL) -> (sharedFoldersConfigured: Bool, clipboardSyncEnabled: Bool) {
-        guard let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let shared = parseSharedResourcesDocument(from: url) else {
             return (false, false)
         }
-        let sharedFolders = object["sharedFolders"] as? [[String: Any]] ?? []
-        let clipboard = object["clipboardSharing"] as? Bool ?? false
-        return (!sharedFolders.isEmpty, clipboard)
+        return (!shared.sharedFolderPaths.isEmpty, shared.clipboardEnabled)
     }
 
     private func parseLauncherEntries(from url: URL) -> [LauncherEntrySummary] {
@@ -1554,6 +1601,17 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             )
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func parseSharedResourcesDocument(from url: URL) -> (sharedFolderPaths: [String], clipboardEnabled: Bool)? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let sharedFolders = object["sharedFolders"] as? [[String: Any]] ?? []
+        let paths = sharedFolders.compactMap { $0["hostPath"] as? String }
+        let clipboard = object["clipboardSharing"] as? Bool ?? false
+        return (paths, clipboard)
     }
 
     func assessDeviceMediaReadiness() async {

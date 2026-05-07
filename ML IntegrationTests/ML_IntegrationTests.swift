@@ -2157,6 +2157,110 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(viewModel.integrationStatusMessage, "Launcher entry is no longer available for this VM.")
     }
 
+    @MainActor
+    func testVerifySharedFolderAndClipboardPassesWhenArtifactsValid() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-verify-io-pass-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-verify-pass",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id."); return }
+        await viewModel.prepareCoherenceEssentials()
+
+        await viewModel.verifySharedFolderAndClipboard(vmID: vmID)
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("verification passed"))
+        XCTAssertEqual(viewModel.fleetDiagnostic(for: vmID)?.lastAction, "verify-io")
+        XCTAssertNil(viewModel.fleetDiagnostic(for: vmID)?.lastErrorMessage)
+    }
+
+    @MainActor
+    func testVerifySharedFolderAndClipboardFailsWhenFolderMissing() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-verify-io-fail-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-verify-fail",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id."); return }
+        await viewModel.prepareCoherenceEssentials()
+
+        let sharedResourcesURL = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration", isDirectory: true)
+            .appendingPathComponent(vmID.uuidString, isDirectory: true)
+            .appendingPathComponent("shared-resources.json")
+        let data = try Data(contentsOf: sharedResourcesURL)
+        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var sharedFolders = object["sharedFolders"] as? [[String: Any]],
+              !sharedFolders.isEmpty else {
+            XCTFail("Expected sharedFolders payload.")
+            return
+        }
+        sharedFolders[0]["hostPath"] = "/tmp/ml-integration-does-not-exist-\(UUID().uuidString)"
+        object["sharedFolders"] = sharedFolders
+        let mutated = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        try mutated.write(to: sharedResourcesURL, options: [.atomic])
+
+        await viewModel.verifySharedFolderAndClipboard(vmID: vmID)
+        XCTAssertTrue(viewModel.integrationStatusMessage.contains("verification failed"))
+        XCTAssertEqual(viewModel.fleetDiagnostic(for: vmID)?.lastAction, "verify-io")
+        XCTAssertNotNil(viewModel.fleetDiagnostic(for: vmID)?.lastErrorMessage)
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }
