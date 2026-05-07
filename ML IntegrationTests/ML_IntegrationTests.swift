@@ -2767,6 +2767,97 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(viewModel.lastIntegrationRemediationReportResults.isEmpty)
     }
 
+    @MainActor
+    func testFilteredIntegrationRemediationReportHistoryMatchesSearchTerm() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-history-search-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-history-search",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        await viewModel.configureSharedResources()
+        await viewModel.fixAllIntegrationWarnings()
+        viewModel.refreshIntegrationRemediationReportHistory()
+
+        let all = viewModel.filteredIntegrationRemediationReportHistory(searchTerm: "")
+        XCTAssertFalse(all.isEmpty)
+        let jsonOnly = viewModel.filteredIntegrationRemediationReportHistory(searchTerm: ".json")
+        XCTAssertEqual(jsonOnly.count, all.count)
+        let noMatch = viewModel.filteredIntegrationRemediationReportHistory(searchTerm: "definitely-no-match-token")
+        XCTAssertTrue(noMatch.isEmpty)
+    }
+
+    @MainActor
+    func testIntegrationRemediationReportHistoryRetentionCapsToLimit() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-history-retention-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let reportsDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+
+        for index in 0..<30 {
+            let report = IntegrationRemediationRunReport(
+                id: UUID(),
+                timestampISO8601: ISO8601DateFormatter().string(from: Date().addingTimeInterval(TimeInterval(index))),
+                attemptedCount: 1,
+                fixedCount: 1,
+                remainingCount: 0,
+                vmResults: []
+            )
+            let data = try JSONEncoder().encode(report)
+            let fileURL = reportsDirectory.appendingPathComponent(String(format: "report-%02d.json", index))
+            try data.write(to: fileURL, options: [.atomic])
+        }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        viewModel.refreshIntegrationRemediationReportHistory()
+
+        XCTAssertEqual(viewModel.integrationRemediationReportHistory.count, 25)
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

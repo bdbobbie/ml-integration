@@ -84,6 +84,7 @@ struct ContentView: View {
     @State private var reportConsentHostProfile: Bool = false
     @State private var reportConsentRuntimeStatus: Bool = true
     @State private var reportConsentConfirmed: Bool = false
+    @State private var remediationHistorySearchTerm: String = ""
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @AppStorage("visualStyleMode") private var visualStyleModeRaw: String = VisualStyleMode.nativeMac.rawValue
     @AppStorage("lightIntensity") private var lightIntensity: Double = 1.0
@@ -1730,7 +1731,10 @@ struct ContentView: View {
                                 .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             }
 
-                            ForEach(runtimeWorkbench.integrationRemediationReportHistory.prefix(5)) { reportEntry in
+                            TextField("Search report history", text: $remediationHistorySearchTerm)
+                                .textFieldStyle(.roundedBorder)
+
+                            ForEach(runtimeWorkbench.filteredIntegrationRemediationReportHistory(searchTerm: remediationHistorySearchTerm).prefix(5)) { reportEntry in
                                 HStack(spacing: 8) {
                                     Text(reportEntry.fileName)
                                         .font(.caption2)

@@ -104,6 +104,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var lastIntegrationRemediationReportSummary: String = ""
     @Published private(set) var lastIntegrationRemediationReportResults: [IntegrationRemediationRunReport.VMResult] = []
     @Published private(set) var integrationRemediationReportHistory: [IntegrationRemediationReportHistoryEntry] = []
+    private let remediationHistoryRetentionLimit: Int = 25
 
     @Published private(set) var downloadStatusMessage: String = ""
     @Published private(set) var downloadedInstallerPath: String = ""
@@ -1519,7 +1520,24 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                 )
             }
             .sorted { $0.modifiedAt > $1.modifiedAt }
+
+        if entries.count > remediationHistoryRetentionLimit {
+            let staleEntries = entries.dropFirst(remediationHistoryRetentionLimit)
+            for stale in staleEntries {
+                try? FileManager.default.removeItem(atPath: stale.path)
+            }
+            entries = Array(entries.prefix(remediationHistoryRetentionLimit))
+        }
         integrationRemediationReportHistory = entries
+    }
+
+    func filteredIntegrationRemediationReportHistory(searchTerm: String) -> [IntegrationRemediationReportHistoryEntry] {
+        let trimmed = searchTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return integrationRemediationReportHistory }
+        return integrationRemediationReportHistory.filter { entry in
+            entry.fileName.localizedCaseInsensitiveContains(trimmed) ||
+                entry.path.localizedCaseInsensitiveContains(trimmed)
+        }
     }
 
     private func loadIntegrationRemediationReportSummary(fromPath path: String) {
