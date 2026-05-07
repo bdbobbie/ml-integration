@@ -854,6 +854,50 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testAssessDeviceMediaReadinessIncludesInjectedFaultReasons() async {
+        let audioKey = RuntimeEnvironment.faultAudioReasonVariable
+        let micKey = RuntimeEnvironment.faultMicReasonVariable
+        let cameraKey = RuntimeEnvironment.faultCameraReasonVariable
+        let usbKey = RuntimeEnvironment.faultUSBReasonVariable
+        let previousAudio = getenv(audioKey).map { String(cString: $0) }
+        let previousMic = getenv(micKey).map { String(cString: $0) }
+        let previousCamera = getenv(cameraKey).map { String(cString: $0) }
+        let previousUSB = getenv(usbKey).map { String(cString: $0) }
+        setenv(audioKey, "permission denied", 1)
+        setenv(micKey, "device busy", 1)
+        setenv(cameraKey, "unavailable", 1)
+        setenv(usbKey, "policy blocked", 1)
+        defer {
+            if let previousAudio { setenv(audioKey, previousAudio, 1) } else { unsetenv(audioKey) }
+            if let previousMic { setenv(micKey, previousMic, 1) } else { unsetenv(micKey) }
+            if let previousCamera { setenv(cameraKey, previousCamera, 1) } else { unsetenv(cameraKey) }
+            if let previousUSB { setenv(usbKey, previousUSB, 1) } else { unsetenv(usbKey) }
+        }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.assessDeviceMediaReadiness()
+
+        XCTAssertFalse(viewModel.deviceAudioReady)
+        XCTAssertFalse(viewModel.deviceMicReady)
+        XCTAssertFalse(viewModel.deviceCameraReady)
+        XCTAssertFalse(viewModel.deviceUSBReady)
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("Audio: fault: permission denied"))
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("Mic: fault: device busy"))
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("Camera: fault: unavailable"))
+        XCTAssertTrue(viewModel.deviceMediaStatusSummary.contains("USB: fault: policy blocked"))
+    }
+
+    @MainActor
     func testAssessDeviceMediaReadinessDiscoversUSBDevicesOnCapableHost() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

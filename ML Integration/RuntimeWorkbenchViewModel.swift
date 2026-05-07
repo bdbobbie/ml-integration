@@ -77,6 +77,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var deviceMicReady: Bool = false
     @Published private(set) var deviceCameraReady: Bool = false
     @Published private(set) var deviceUSBReady: Bool = false
+    @Published private(set) var deviceAudioDiagnostic: String = ""
+    @Published private(set) var deviceMicDiagnostic: String = ""
+    @Published private(set) var deviceCameraDiagnostic: String = ""
+    @Published private(set) var deviceUSBDiagnostic: String = ""
     @Published private(set) var audioInputEnabled: Bool = true
     @Published private(set) var micInputEnabled: Bool = true
     @Published private(set) var cameraInputEnabled: Bool = true
@@ -2382,17 +2386,42 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
         await logRunEvent(stage: .deviceMediaReadiness, result: .inProgress, vmID: activeVMID, message: "Assessing device/media readiness.")
         let baselineReady = VZVirtualMachine.isSupported && profile.cpuCores >= 4 && profile.memoryGB >= 8
-        deviceAudioReady = baselineReady && audioInputEnabled
-        deviceMicReady = baselineReady && micInputEnabled
-        deviceCameraReady = baselineReady && cameraInputEnabled
+        let audioFault = injectedFaultReason(for: RuntimeEnvironment.faultAudioReasonVariable)
+        let micFault = injectedFaultReason(for: RuntimeEnvironment.faultMicReasonVariable)
+        let cameraFault = injectedFaultReason(for: RuntimeEnvironment.faultCameraReasonVariable)
+        let usbFault = injectedFaultReason(for: RuntimeEnvironment.faultUSBReasonVariable)
+
+        deviceAudioReady = baselineReady && audioInputEnabled && audioFault == nil
+        deviceMicReady = baselineReady && micInputEnabled && micFault == nil
+        deviceCameraReady = baselineReady && cameraInputEnabled && cameraFault == nil
         refreshUSBDeviceInventory(isHostCapable: baselineReady)
-        deviceUSBReady = baselineReady && !availableUSBDevices.isEmpty
+        deviceUSBReady = baselineReady && !availableUSBDevices.isEmpty && usbFault == nil
+
+        deviceAudioDiagnostic = deviceDiagnosticLabel(
+            ready: deviceAudioReady,
+            toggleEnabled: audioInputEnabled,
+            baselineReady: baselineReady,
+            faultReason: audioFault
+        )
+        deviceMicDiagnostic = deviceDiagnosticLabel(
+            ready: deviceMicReady,
+            toggleEnabled: micInputEnabled,
+            baselineReady: baselineReady,
+            faultReason: micFault
+        )
+        deviceCameraDiagnostic = deviceDiagnosticLabel(
+            ready: deviceCameraReady,
+            toggleEnabled: cameraInputEnabled,
+            baselineReady: baselineReady,
+            faultReason: cameraFault
+        )
+        deviceUSBDiagnostic = deviceUSBReady ? "ready" : (usbFault.map { "fault: \($0)" } ?? "pending")
 
         let checks = [
-            deviceAudioReady ? "Audio: ready" : (audioInputEnabled ? "Audio: pending" : "Audio: disabled"),
-            deviceMicReady ? "Mic: ready" : (micInputEnabled ? "Mic: pending" : "Mic: disabled"),
-            deviceCameraReady ? "Camera: ready" : (cameraInputEnabled ? "Camera: pending" : "Camera: disabled"),
-            deviceUSBReady ? "USB: ready" : "USB: pending"
+            "Audio: \(deviceAudioDiagnostic)",
+            "Mic: \(deviceMicDiagnostic)",
+            "Camera: \(deviceCameraDiagnostic)",
+            "USB: \(deviceUSBDiagnostic)"
         ]
         deviceMediaStatusSummary = checks.joined(separator: " | ")
         await logRunEvent(
@@ -2412,11 +2441,30 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             deviceAudioReady = baselineReady && audioInputEnabled
             deviceMicReady = baselineReady && micInputEnabled
             deviceCameraReady = baselineReady && cameraInputEnabled
+            deviceAudioDiagnostic = deviceDiagnosticLabel(
+                ready: deviceAudioReady,
+                toggleEnabled: audioInputEnabled,
+                baselineReady: baselineReady,
+                faultReason: nil
+            )
+            deviceMicDiagnostic = deviceDiagnosticLabel(
+                ready: deviceMicReady,
+                toggleEnabled: micInputEnabled,
+                baselineReady: baselineReady,
+                faultReason: nil
+            )
+            deviceCameraDiagnostic = deviceDiagnosticLabel(
+                ready: deviceCameraReady,
+                toggleEnabled: cameraInputEnabled,
+                baselineReady: baselineReady,
+                faultReason: nil
+            )
+            deviceUSBDiagnostic = deviceUSBReady ? "ready" : "pending"
             let checks = [
-                deviceAudioReady ? "Audio: ready" : (audioInputEnabled ? "Audio: pending" : "Audio: disabled"),
-                deviceMicReady ? "Mic: ready" : (micInputEnabled ? "Mic: pending" : "Mic: disabled"),
-                deviceCameraReady ? "Camera: ready" : (cameraInputEnabled ? "Camera: pending" : "Camera: disabled"),
-                deviceUSBReady ? "USB: ready" : "USB: pending"
+                "Audio: \(deviceAudioDiagnostic)",
+                "Mic: \(deviceMicDiagnostic)",
+                "Camera: \(deviceCameraDiagnostic)",
+                "USB: \(deviceUSBDiagnostic)"
             ]
             deviceMediaStatusSummary = checks.joined(separator: " | ")
         } else {
@@ -2475,6 +2523,25 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             selectedUSBDeviceID = availableUSBDevices.first?.id
         }
         usbPassthroughStatusMessage = "Detected \(availableUSBDevices.count) USB passthrough device(s)."
+    }
+
+    private func injectedFaultReason(for environmentKey: String) -> String? {
+        let raw = ProcessInfo.processInfo.environment[environmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let raw, !raw.isEmpty else { return nil }
+        return raw
+    }
+
+    private func deviceDiagnosticLabel(
+        ready: Bool,
+        toggleEnabled: Bool,
+        baselineReady: Bool,
+        faultReason: String?
+    ) -> String {
+        if ready { return "ready" }
+        if let faultReason { return "fault: \(faultReason)" }
+        if !toggleEnabled { return "disabled" }
+        if !baselineReady { return "pending" }
+        return "pending"
     }
 
     func assessDisplayPlanReadiness() async {
