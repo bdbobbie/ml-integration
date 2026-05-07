@@ -1943,6 +1943,111 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: state.windowPolicyConfigPath))
     }
 
+    @MainActor
+    func testIntegrationCapabilitiesSyncAfterCoherencePreparation() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-capabilities-sync-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-sync",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected VM id after scaffold.")
+            return
+        }
+
+        await viewModel.prepareCoherenceEssentials()
+
+        let capabilities = viewModel.integrationCapabilities(for: vmID)
+        XCTAssertTrue(capabilities.sharedFoldersConfigured)
+        XCTAssertTrue(capabilities.clipboardSyncEnabled)
+        XCTAssertEqual(capabilities.launcherEntries.count, 3)
+        XCTAssertTrue(capabilities.launcherEntries.contains(where: { $0.name == "Linux Terminal" }))
+    }
+
+    @MainActor
+    func testIntegrationCapabilitiesRemainEmptyWhenArtifactsUnavailable() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-capabilities-missing-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let integrationService = MockIntegrationService()
+        integrationService.emitWindowCoherenceArtifacts = false
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: integrationService,
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-empty",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected VM id after scaffold.")
+            return
+        }
+
+        let capabilities = viewModel.integrationCapabilities(for: vmID)
+        XCTAssertFalse(capabilities.sharedFoldersConfigured)
+        XCTAssertFalse(capabilities.clipboardSyncEnabled)
+        XCTAssertTrue(capabilities.launcherEntries.isEmpty)
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

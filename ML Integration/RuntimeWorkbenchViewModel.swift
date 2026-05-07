@@ -75,6 +75,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var activeRuntimeVMIDs: [UUID] = []
     @Published private(set) var runtimeStateByVMID: [UUID: VMRuntimeState] = [:]
     @Published private(set) var fleetDiagnosticsByVMID: [UUID: FleetRuntimeDiagnostic] = [:]
+    @Published private(set) var integrationCapabilitiesByVMID: [UUID: VMIntegrationCapabilities] = [:]
     @Published private(set) var customCatalogEntries: [CustomCatalogEntry] = []
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -370,6 +371,9 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             vmRuntimeState = .stopped
         }
         installedVMEntries = validEntries
+        for entry in validEntries {
+            syncIntegrationCapabilities(for: entry.id)
+        }
 
         registryStatusMessage = "Registry restored \(validEntries.count) VM entries, pruned \(prunedCount) stale entries."
         _ = applyRestoredRuntimeSession(restoredSession, validVMIDs: Set(validEntries.map(\.id)))
@@ -1206,6 +1210,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         fleetDiagnosticsByVMID[vmID]
     }
 
+    func integrationCapabilities(for vmID: UUID) -> VMIntegrationCapabilities {
+        integrationCapabilitiesByVMID[vmID] ?? .empty
+    }
+
     private func fleetSortPriority(for state: VMRuntimeState) -> Int {
         switch state {
         case .running:
@@ -1324,11 +1332,13 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             try await integrationService.configureSharedResources(for: vmID)
             coherenceSharedFoldersReady = true
             coherenceClipboardReady = true
+            syncIntegrationCapabilities(for: vmID)
             updateCoherenceStatusSummary()
             integrationStatusMessage = "Shared resources configured for VM \(vmID.uuidString)."
         } catch {
             coherenceSharedFoldersReady = false
             coherenceClipboardReady = false
+            syncIntegrationCapabilities(for: vmID)
             updateCoherenceStatusSummary()
             integrationStatusMessage = "Shared resource configuration failed: \(error.localizedDescription)"
         }
@@ -1343,10 +1353,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         do {
             try await integrationService.configureLauncherEntries(for: vmID)
             coherenceLauncherReady = true
+            syncIntegrationCapabilities(for: vmID)
             updateCoherenceStatusSummary()
             integrationStatusMessage = "Launcher entries configured for VM \(vmID.uuidString)."
         } catch {
             coherenceLauncherReady = false
+            syncIntegrationCapabilities(for: vmID)
             updateCoherenceStatusSummary()
             integrationStatusMessage = "Launcher configuration failed: \(error.localizedDescription)"
         }
@@ -1384,6 +1396,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             try await integrationService.configureSharedResources(for: vmID)
             coherenceSharedFoldersReady = true
             coherenceClipboardReady = true
+            syncIntegrationCapabilities(for: vmID)
             updateCoherenceStatusSummary()
         } catch {
             integrationStatusMessage = "Coherence setup failed at shared resources: \(error.localizedDescription)"
@@ -1396,6 +1409,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             try await integrationService.configureLauncherEntries(for: vmID)
             coherenceLauncherReady = true
             coherenceWindowPolicyReady = verifyWindowCoherenceArtifacts(for: vmID)
+            syncIntegrationCapabilities(for: vmID)
             guard coherenceWindowPolicyReady else {
                 integrationStatusMessage = "Coherence setup failed at window policy verification: required artifacts are missing."
                 updateCoherenceStatusSummary()
@@ -1431,6 +1445,54 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             .appendingPathComponent("host-scripts", isDirectory: true)
             .appendingPathComponent("apply-window-coherence.command").path
         return FileManager.default.fileExists(atPath: policy) && FileManager.default.fileExists(atPath: hostScript)
+    }
+
+    private func syncIntegrationCapabilities(for vmID: UUID) {
+        let integrationDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration", isDirectory: true)
+            .appendingPathComponent(vmID.uuidString, isDirectory: true)
+        let sharedResourcesURL = integrationDirectory.appendingPathComponent("shared-resources.json")
+        let launcherManifestURL = integrationDirectory.appendingPathComponent("launcher-manifest.json")
+
+        let sharedInfo = parseSharedResources(from: sharedResourcesURL)
+        let launcherEntries = parseLauncherEntries(from: launcherManifestURL)
+        integrationCapabilitiesByVMID[vmID] = VMIntegrationCapabilities(
+            sharedFoldersConfigured: sharedInfo.sharedFoldersConfigured,
+            clipboardSyncEnabled: sharedInfo.clipboardSyncEnabled,
+            launcherEntries: launcherEntries
+        )
+    }
+
+    private func parseSharedResources(from url: URL) -> (sharedFoldersConfigured: Bool, clipboardSyncEnabled: Bool) {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (false, false)
+        }
+        let sharedFolders = object["sharedFolders"] as? [[String: Any]] ?? []
+        let clipboard = object["clipboardSharing"] as? Bool ?? false
+        return (!sharedFolders.isEmpty, clipboard)
+    }
+
+    private func parseLauncherEntries(from url: URL) -> [LauncherEntrySummary] {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return []
+        }
+        let entries = object["entries"] as? [[String: Any]] ?? []
+        return entries.compactMap { entry in
+            guard let name = entry["name"] as? String,
+                  let category = entry["category"] as? String,
+                  let script = entry["script"] as? String else {
+                return nil
+            }
+            return LauncherEntrySummary(
+                id: "\(name)|\(script)",
+                name: name,
+                category: category,
+                scriptPath: script
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     func assessDeviceMediaReadiness() async {

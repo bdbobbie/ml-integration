@@ -1674,6 +1674,7 @@ struct ContentView: View {
                             ForEach(runtimeWorkbench.fleetEntries(filteredBy: runtimeFleetFilter)) { entry in
                                 let vmState = runtimeWorkbench.runtimeState(for: entry.id)
                                 let diagnostic = runtimeWorkbench.fleetDiagnostic(for: entry.id)
+                                let integrationCaps = runtimeWorkbench.integrationCapabilities(for: entry.id)
                                 HStack(spacing: 10) {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("\(entry.distribution.rawValue) • \(entry.vmName)")
@@ -1698,6 +1699,13 @@ struct ContentView: View {
                                             .font(.caption2)
                                             .foregroundColor(diagnostic.lastErrorMessage == nil ? .secondary : .red)
                                         }
+                                        Text(
+                                            "Shared folders: \(integrationCaps.sharedFoldersConfigured ? "ready" : "pending") • " +
+                                            "Clipboard: \(integrationCaps.clipboardSyncEnabled ? "ready" : "pending") • " +
+                                            "Launchers: \(integrationCaps.launcherEntries.count)"
+                                        )
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
                                     }
                                     Spacer()
                                     Button("Start") {

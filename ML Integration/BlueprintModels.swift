@@ -186,6 +186,25 @@ struct RuntimeSessionSnapshot: Codable, Equatable, Identifiable {
     }
 }
 
+struct LauncherEntrySummary: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let category: String
+    let scriptPath: String
+}
+
+struct VMIntegrationCapabilities: Equatable {
+    let sharedFoldersConfigured: Bool
+    let clipboardSyncEnabled: Bool
+    let launcherEntries: [LauncherEntrySummary]
+
+    static let empty = VMIntegrationCapabilities(
+        sharedFoldersConfigured: false,
+        clipboardSyncEnabled: false,
+        launcherEntries: []
+    )
+}
+
 enum RoadmapPhaseStatus: String, CaseIterable, Identifiable, Codable {
     case pending
     case inProgress
