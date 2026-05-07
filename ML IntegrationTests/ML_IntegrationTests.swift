@@ -1485,6 +1485,76 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(report.contains("WARN: Window coherence policy schema invalid"))
     }
 
+    @MainActor
+    func testRunHealthCheckSetsWindowPolicySchemaFlagWhenValid() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let mockHealth = MockHealthService()
+        mockHealth.nextHealthReport = [
+            "OK: Window coherence policy exists",
+            "OK: Window coherence policy schema valid"
+        ]
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: mockHealth,
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-health-valid-schema",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        await viewModel.runHealthCheck()
+
+        XCTAssertTrue(viewModel.coherenceWindowPolicySchemaValid)
+    }
+
+    @MainActor
+    func testRunHealthCheckClearsWindowPolicySchemaFlagWhenInvalid() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let mockHealth = MockHealthService()
+        mockHealth.nextHealthReport = [
+            "OK: Window coherence policy exists",
+            "WARN: Window coherence policy schema invalid"
+        ]
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: mockHealth,
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-health-invalid-schema",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        await viewModel.runHealthCheck()
+
+        XCTAssertFalse(viewModel.coherenceWindowPolicySchemaValid)
+    }
+
     func testUninstallUsesRegistryVMPathAndRemovesRegistryEntry() async throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("cleanup-registry-\(UUID().uuidString)", isDirectory: true)
@@ -2222,9 +2292,11 @@ final class MockCleanupService: UninstallCleanupService {
 }
 
 final class MockHealthService: HealthAndRepairService {
+    var nextHealthReport: [String] = ["OK: mock health"]
+
     func runHealthCheck(for vmID: UUID) async throws -> [String] {
         _ = vmID
-        return ["OK: mock health"]
+        return nextHealthReport
     }
 
     func applyAutomaticRepair(for vmID: UUID) async throws -> [String] {

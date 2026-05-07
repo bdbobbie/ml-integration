@@ -32,6 +32,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var coherenceClipboardReady: Bool = false
     @Published private(set) var coherenceLauncherReady: Bool = false
     @Published private(set) var coherenceWindowPolicyReady: Bool = false
+    @Published private(set) var coherenceWindowPolicySchemaValid: Bool = false
     @Published private(set) var coherenceStatusSummary: String = "Coherence essentials not prepared."
     @Published private(set) var deviceAudioReady: Bool = false
     @Published private(set) var deviceMicReady: Bool = false
@@ -959,12 +960,14 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         do {
             let report = try await healthService.runHealthCheck(for: vmID)
             healthReport = report
+            coherenceWindowPolicySchemaValid = report.contains("OK: Window coherence policy schema valid")
             let warnings = report.filter { $0.hasPrefix("WARN") }.count
             healthStatusMessage = "Health check finished for VM \(vmID.uuidString). Warnings: \(warnings)."
             await logRunEvent(stage: .healthCheck, result: .success, vmID: vmID, message: healthStatusMessage)
         } catch {
             healthStatusMessage = "Health check failed: \(error.localizedDescription)"
             healthReport = []
+            coherenceWindowPolicySchemaValid = false
             await logRunEvent(stage: .healthCheck, result: .failed, vmID: vmID, message: error.localizedDescription)
         }
     }
