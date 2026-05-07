@@ -2342,6 +2342,53 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testIntegrationHealthBadgeIsWarningWhenWindowPolicySchemaInvalid() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-badge-schema-warning-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-badge-schema-warning",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id."); return }
+        await viewModel.prepareCoherenceEssentials()
+
+        let policyURL = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration", isDirectory: true)
+            .appendingPathComponent(vmID.uuidString, isDirectory: true)
+            .appendingPathComponent("window-coherence-policy.json")
+        try Data("{\"vmID\":\"broken\"}".utf8).write(to: policyURL, options: [.atomic])
+
+        let badge = viewModel.integrationHealthBadge(for: vmID)
+        XCTAssertEqual(badge.status, .warning)
+        XCTAssertTrue(badge.summary.contains("schema invalid"))
+    }
+
+    @MainActor
     func testIntegrationHealthBadgeIsErrorWhenNotConfigured() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

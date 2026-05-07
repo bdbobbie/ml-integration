@@ -1244,10 +1244,18 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         syncIntegrationCapabilities(for: vmID)
         let capabilities = integrationCapabilities(for: vmID)
         let windowPolicyReady = verifyWindowCoherenceArtifacts(for: vmID)
+        let windowPolicySchemaValid = validateWindowPolicySchema(for: vmID)
         let hasLaunchers = !capabilities.launcherEntries.isEmpty
 
-        if capabilities.sharedFoldersConfigured && capabilities.clipboardSyncEnabled && hasLaunchers && windowPolicyReady {
+        if capabilities.sharedFoldersConfigured &&
+            capabilities.clipboardSyncEnabled &&
+            hasLaunchers &&
+            windowPolicyReady &&
+            windowPolicySchemaValid {
             return (.healthy, "Integration healthy")
+        }
+        if windowPolicyReady && !windowPolicySchemaValid {
+            return (.warning, "Integration warning: window policy schema invalid")
         }
         if hasLaunchers || capabilities.sharedFoldersConfigured || capabilities.clipboardSyncEnabled || windowPolicyReady {
             return (.warning, "Integration partially configured")
@@ -1262,6 +1270,9 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         case .healthy:
             await verifySharedFolderAndClipboard(vmID: vmID)
         case .warning, .error:
+            if badge.summary.contains("schema invalid") {
+                await repairCoherencePolicy()
+            }
             await prepareCoherenceEssentials()
             await verifySharedFolderAndClipboard(vmID: vmID)
         }
@@ -1583,6 +1594,25 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             .appendingPathComponent("host-scripts", isDirectory: true)
             .appendingPathComponent("apply-window-coherence.command").path
         return FileManager.default.fileExists(atPath: policy) && FileManager.default.fileExists(atPath: hostScript)
+    }
+
+    private func validateWindowPolicySchema(for vmID: UUID) -> Bool {
+        let policyURL = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration", isDirectory: true)
+            .appendingPathComponent(vmID.uuidString, isDirectory: true)
+            .appendingPathComponent("window-coherence-policy.json")
+        guard
+            let data = try? Data(contentsOf: policyURL),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let windowBehavior = object["windowBehavior"] as? [String: Any],
+            let syncPolicy = object["syncPolicy"] as? [String: Any]
+        else {
+            return false
+        }
+        return windowBehavior["focusFollowsHostActivation"] is Bool &&
+            windowBehavior["preserveZOrderOnAttach"] is Bool &&
+            windowBehavior["allowHostDrivenResize"] is Bool &&
+            syncPolicy["throttleMs"] is Int
     }
 
     private func syncIntegrationCapabilities(for vmID: UUID) {
