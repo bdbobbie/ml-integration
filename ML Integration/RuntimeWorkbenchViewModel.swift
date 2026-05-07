@@ -108,6 +108,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var malformedIntegrationRemediationReportCount: Int = 0
     @Published private(set) var integrationRemediationHistoryDeleteStatusMessage: String = ""
     @Published private(set) var integrationRemediationDeletionArmed: Bool = false
+    @Published private(set) var integrationRemediationDeletionSecondsRemaining: Int = 0
     private let remediationHistoryRetentionLimit: Int = 25
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -149,6 +150,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private let registry: VMRegistryManaging
     private let observability: RuntimeObservabilityLogging
     private let launcherExecutor: LauncherScriptExecuting
+    private let deletionArmDurationSeconds: Int
+    private var integrationRemediationDeletionCountdownTask: Task<Void, Never>?
 
     private var lastCatalogRefresh: Date?
     private let sourceMonitoringInterval: TimeInterval = 60 * 30
@@ -167,7 +170,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         downloader: ArtifactDownloading? = nil,
         registry: VMRegistryManaging? = nil,
         observability: RuntimeObservabilityLogging? = nil,
-        launcherExecutor: LauncherScriptExecuting? = nil
+        launcherExecutor: LauncherScriptExecuting? = nil,
+        deletionArmDurationSeconds: Int = 30
     ) {
         self.hostService = hostService ?? DefaultHostProfileService()
         self.catalogService = catalogService ?? OfficialDistributionCatalogService()
@@ -183,6 +187,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         self.registry = registry ?? PersistentVMRegistryStore()
         self.observability = observability ?? FileRuntimeObservabilityStore()
         self.launcherExecutor = launcherExecutor ?? ProcessLauncherScriptExecutor()
+        self.deletionArmDurationSeconds = max(1, deletionArmDurationSeconds)
 
         traceVM("Build marker: VM-LAUNCH-DIAG-2026-04-23T00:00Z")
         Task {
@@ -1643,11 +1648,17 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     func armIntegrationRemediationDeletion() {
         integrationRemediationDeletionArmed = true
-        integrationRemediationHistoryDeleteStatusMessage = "Destructive deletion armed."
+        integrationRemediationDeletionSecondsRemaining = deletionArmDurationSeconds
+        integrationRemediationHistoryDeleteStatusMessage =
+            "Destructive deletion armed for \(deletionArmDurationSeconds)s."
+        startIntegrationRemediationDeletionCountdown()
     }
 
     func disarmIntegrationRemediationDeletion() {
         integrationRemediationDeletionArmed = false
+        integrationRemediationDeletionSecondsRemaining = 0
+        integrationRemediationDeletionCountdownTask?.cancel()
+        integrationRemediationDeletionCountdownTask = nil
     }
 
     func confirmDeleteIntegrationRemediationReport(atPath path: String) {
@@ -1656,7 +1667,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             return
         }
         deleteIntegrationRemediationReport(atPath: path)
-        integrationRemediationDeletionArmed = false
+        disarmIntegrationRemediationDeletion()
     }
 
     func confirmDeleteMalformedIntegrationRemediationReports() {
@@ -1665,7 +1676,23 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             return
         }
         deleteMalformedIntegrationRemediationReports()
-        integrationRemediationDeletionArmed = false
+        disarmIntegrationRemediationDeletion()
+    }
+
+    private func startIntegrationRemediationDeletionCountdown() {
+        integrationRemediationDeletionCountdownTask?.cancel()
+        integrationRemediationDeletionCountdownTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled && self.integrationRemediationDeletionArmed && self.integrationRemediationDeletionSecondsRemaining > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                self.integrationRemediationDeletionSecondsRemaining = max(0, self.integrationRemediationDeletionSecondsRemaining - 1)
+            }
+            if self.integrationRemediationDeletionArmed && self.integrationRemediationDeletionSecondsRemaining == 0 {
+                self.integrationRemediationDeletionArmed = false
+                self.integrationRemediationHistoryDeleteStatusMessage = "Deletion arm expired."
+            }
+        }
     }
 
     func integrationRemediationReportsDirectoryURL() -> URL {

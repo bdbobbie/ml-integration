@@ -1758,6 +1758,11 @@ struct ContentView: View {
                                     presentInfo(runtimeWorkbench.integrationRemediationHistoryDeleteStatusMessage)
                                 }
                                 .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                if runtimeWorkbench.integrationRemediationDeletionArmed {
+                                    Text("Auto-disarm in \(runtimeWorkbench.integrationRemediationDeletionSecondsRemaining)s")
+                                        .font(.caption2)
+                                        .foregroundColor(.orange)
+                                }
                                 Button("Delete Malformed") {
                                     runtimeWorkbench.confirmDeleteMalformedIntegrationRemediationReports()
                                     presentInfo(runtimeWorkbench.integrationRemediationHistoryDeleteStatusMessage)

@@ -3434,6 +3434,51 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(viewModel.integrationRemediationHistoryDeleteStatusMessage, "Deletion blocked. Arm deletion first.")
     }
 
+    @MainActor
+    func testIntegrationRemediationDeletionArmAutoExpires() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            deletionArmDurationSeconds: 1
+        )
+
+        viewModel.armIntegrationRemediationDeletion()
+        XCTAssertTrue(viewModel.integrationRemediationDeletionArmed)
+        XCTAssertGreaterThanOrEqual(viewModel.integrationRemediationDeletionSecondsRemaining, 1)
+
+        try? await Task.sleep(nanoseconds: 1_300_000_000)
+        XCTAssertFalse(viewModel.integrationRemediationDeletionArmed)
+        XCTAssertEqual(viewModel.integrationRemediationDeletionSecondsRemaining, 0)
+        XCTAssertEqual(viewModel.integrationRemediationHistoryDeleteStatusMessage, "Deletion arm expired.")
+    }
+
+    @MainActor
+    func testIntegrationRemediationDeletionDisarmResetsCountdown() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            deletionArmDurationSeconds: 5
+        )
+
+        viewModel.armIntegrationRemediationDeletion()
+        XCTAssertTrue(viewModel.integrationRemediationDeletionArmed)
+        viewModel.disarmIntegrationRemediationDeletion()
+        XCTAssertFalse(viewModel.integrationRemediationDeletionArmed)
+        XCTAssertEqual(viewModel.integrationRemediationDeletionSecondsRemaining, 0)
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }
