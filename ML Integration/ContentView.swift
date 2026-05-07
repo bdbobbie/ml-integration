@@ -1750,6 +1750,11 @@ struct ContentView: View {
                                 }
                                 .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             }
+                            if runtimeWorkbench.malformedIntegrationRemediationReportCount > 0 {
+                                Text("Malformed reports detected: \(runtimeWorkbench.malformedIntegrationRemediationReportCount)")
+                                    .font(.caption2)
+                                    .foregroundColor(.red)
+                            }
 
                             TextField("Search report history", text: $remediationHistorySearchTerm)
                                 .textFieldStyle(.roundedBorder)
@@ -1776,6 +1781,11 @@ struct ContentView: View {
                                         .font(.caption2)
                                         .foregroundColor(.secondary)
                                         .lineLimit(1)
+                                    if reportEntry.isMalformed {
+                                        Text("Malformed")
+                                            .font(.caption2)
+                                            .foregroundColor(.red)
+                                    }
                                     Spacer()
                                     Button("Load") {
                                         runtimeWorkbench.loadIntegrationRemediationReport(atPath: reportEntry.path)

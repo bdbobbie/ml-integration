@@ -105,6 +105,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var lastIntegrationRemediationReportResults: [IntegrationRemediationRunReport.VMResult] = []
     @Published private(set) var integrationRemediationReportHistory: [IntegrationRemediationReportHistoryEntry] = []
     @Published private(set) var integrationRemediationHistoryCleanupStatusMessage: String = ""
+    @Published private(set) var malformedIntegrationRemediationReportCount: Int = 0
     private let remediationHistoryRetentionLimit: Int = 25
 
     @Published private(set) var downloadStatusMessage: String = ""
@@ -1522,7 +1523,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
                     modifiedAt: modifiedAt,
                     attemptedCount: report?.attemptedCount,
                     fixedCount: report?.fixedCount,
-                    remainingCount: report?.remainingCount
+                    remainingCount: report?.remainingCount,
+                    isMalformed: reportData != nil && report == nil
                 )
             }
             .sorted { $0.modifiedAt > $1.modifiedAt }
@@ -1535,6 +1537,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             entries = Array(entries.prefix(remediationHistoryRetentionLimit))
         }
         integrationRemediationReportHistory = entries
+        malformedIntegrationRemediationReportCount = entries.filter(\.isMalformed).count
     }
 
     func filteredIntegrationRemediationReportHistory(

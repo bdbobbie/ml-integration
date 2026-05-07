@@ -234,6 +234,18 @@ struct IntegrationRemediationReportHistoryEntry: Identifiable, Equatable {
     let path: String
     let fileName: String
     let modifiedAt: Date
+    let attemptedCount: Int?
+    let fixedCount: Int?
+    let remainingCount: Int?
+    let isMalformed: Bool
+}
+
+enum IntegrationRemediationHistoryStatusFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case fullyFixed = "Fully Fixed"
+    case hasRemaining = "Has Remaining"
+
+    var id: String { rawValue }
 }
 
 enum RoadmapPhaseStatus: String, CaseIterable, Identifiable, Codable {

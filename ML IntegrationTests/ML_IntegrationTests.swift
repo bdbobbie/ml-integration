@@ -3085,6 +3085,56 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertTrue(viewModel.integrationRemediationHistoryCleanupStatusMessage.contains("No cleanup needed"))
     }
 
+    @MainActor
+    func testRefreshIntegrationRemediationReportHistoryFlagsMalformedReports() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-history-malformed-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let reportsDirectory = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        try FileManager.default.createDirectory(at: reportsDirectory, withIntermediateDirectories: true)
+
+        let validReport = IntegrationRemediationRunReport(
+            id: UUID(),
+            timestampISO8601: ISO8601DateFormatter().string(from: Date()),
+            attemptedCount: 1,
+            fixedCount: 1,
+            remainingCount: 0,
+            vmResults: []
+        )
+        try JSONEncoder().encode(validReport).write(
+            to: reportsDirectory.appendingPathComponent("valid.json"),
+            options: [.atomic]
+        )
+        try Data("{\"broken\":".utf8).write(
+            to: reportsDirectory.appendingPathComponent("malformed.json"),
+            options: [.atomic]
+        )
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+        viewModel.refreshIntegrationRemediationReportHistory()
+
+        XCTAssertEqual(viewModel.malformedIntegrationRemediationReportCount, 1)
+        XCTAssertTrue(viewModel.integrationRemediationReportHistory.contains(where: { $0.fileName == "malformed.json" && $0.isMalformed }))
+        XCTAssertTrue(viewModel.integrationRemediationReportHistory.contains(where: { $0.fileName == "valid.json" && !$0.isMalformed }))
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }
