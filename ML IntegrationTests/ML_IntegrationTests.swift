@@ -2947,6 +2947,53 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(ascending.first?.fileName, "older.json")
     }
 
+    @MainActor
+    func testIntegrationRemediationReportsDirectoryURLUsesTestRoot() {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-reports-dir-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        let reportsDirectory = viewModel.integrationRemediationReportsDirectoryURL()
+        XCTAssertTrue(reportsDirectory.path.hasSuffix("integration-remediation-reports"))
+        XCTAssertTrue(reportsDirectory.path.contains(testRoot.path))
+    }
+
+    @MainActor
+    func testLoadIntegrationRemediationReportInvalidPathSetsLoadFailureSummary() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        viewModel.loadIntegrationRemediationReport(atPath: "/tmp/does-not-exist-report.json")
+        XCTAssertEqual(viewModel.lastIntegrationRemediationReportPath, "/tmp/does-not-exist-report.json")
+        XCTAssertEqual(viewModel.lastIntegrationRemediationReportSummary, "Last remediation report could not be loaded.")
+        XCTAssertTrue(viewModel.lastIntegrationRemediationReportResults.isEmpty)
+    }
+
     func testDefaultHealthServiceReportsWindowCoherenceArtifacts() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }

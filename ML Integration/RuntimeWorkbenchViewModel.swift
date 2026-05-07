@@ -1473,7 +1473,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     private func writeIntegrationRemediationRunReport(_ report: IntegrationRemediationRunReport) throws -> String {
-        let directory = baseDirectory().appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        let directory = integrationRemediationReportsDirectoryURL()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let fileURL = directory.appendingPathComponent("remediation-\(report.id.uuidString).json")
         let encoder = JSONEncoder()
@@ -1498,7 +1498,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     func refreshIntegrationRemediationReportHistory() {
-        let directory = baseDirectory().appendingPathComponent("integration-remediation-reports", isDirectory: true)
+        let directory = integrationRemediationReportsDirectoryURL()
         guard let fileURLs = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey],
@@ -1558,6 +1558,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             entries = entries.filter { ($0.remainingCount ?? 0) > 0 }
         }
         return entries.sorted { recentFirst ? ($0.modifiedAt > $1.modifiedAt) : ($0.modifiedAt < $1.modifiedAt) }
+    }
+
+    func integrationRemediationReportsDirectoryURL() -> URL {
+        baseDirectory().appendingPathComponent("integration-remediation-reports", isDirectory: true)
     }
 
     private func loadIntegrationRemediationReportSummary(fromPath path: String) {

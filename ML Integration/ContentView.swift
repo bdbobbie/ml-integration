@@ -1721,6 +1721,19 @@ struct ContentView: View {
                                     runtimeWorkbench.reloadLastIntegrationRemediationReportSummary()
                                 }
                                 .buttonStyle(RedTextWhiteOutlineButtonStyle())
+
+                                ShareLink(
+                                    item: URL(fileURLWithPath: runtimeWorkbench.lastIntegrationRemediationReportPath),
+                                    preview: SharePreview("Integration Remediation Report")
+                                ) {
+                                    Text("Share Selected Report")
+                                }
+
+                                Button("Open Reports Folder") {
+                                    let folderURL = runtimeWorkbench.integrationRemediationReportsDirectoryURL()
+                                    _ = NSWorkspace.shared.open(folderURL)
+                                }
+                                .buttonStyle(RedTextWhiteOutlineButtonStyle())
                             }
 
                             HStack(spacing: 8) {
