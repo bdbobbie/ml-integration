@@ -18,6 +18,7 @@ struct IntegrationPackageState: Codable {
     let vmID: String
     let generatedAtISO8601: String
     let sharedResourcesConfigPath: String
+    let windowPolicyConfigPath: String
     let launcherManifestPath: String
     let rootlessConfigPath: String
     let hostScripts: [String]
@@ -60,6 +61,24 @@ final class DefaultIntegrationService: IntegrationService {
         let configURL = package.integrationDirectory.appendingPathComponent("shared-resources.json")
         try data.write(to: configURL, options: [.atomic])
 
+        let windowPolicy: [String: Any] = [
+            "vmID": vmID.uuidString,
+            "windowBehavior": [
+                "focusFollowsHostActivation": true,
+                "preserveZOrderOnAttach": true,
+                "allowHostDrivenResize": true,
+                "minimumWindowSize": ["width": 640, "height": 480],
+                "snapToVisibleDisplayBounds": true
+            ],
+            "syncPolicy": [
+                "throttleMs": 16,
+                "coalesceRapidResizeEvents": true
+            ]
+        ]
+        let windowPolicyData = try JSONSerialization.data(withJSONObject: windowPolicy, options: [.prettyPrinted, .sortedKeys])
+        let windowPolicyURL = package.integrationDirectory.appendingPathComponent("window-coherence-policy.json")
+        try windowPolicyData.write(to: windowPolicyURL, options: [.atomic])
+
         let guestScript = """
         #!/bin/sh
         set -eu
@@ -78,6 +97,24 @@ final class DefaultIntegrationService: IntegrationService {
         try writeExecutableScript(
             guestScript,
             to: package.guestScriptsDirectory.appendingPathComponent("setup-shared-resources.sh")
+        )
+
+        let hostWindowScript = """
+        #!/bin/sh
+        set -eu
+
+        POLICY_FILE="\(windowPolicyURL.path)"
+        if [ ! -f "${POLICY_FILE}" ]; then
+          echo "Window coherence policy file missing: ${POLICY_FILE}"
+          exit 1
+        fi
+
+        echo "Applying window coherence policy from ${POLICY_FILE}"
+        echo "Focus/z-order/resize policy staged for VM \(vmID.uuidString)."
+        """
+        try writeExecutableScript(
+            hostWindowScript,
+            to: package.hostScriptsDirectory.appendingPathComponent("apply-window-coherence.command")
         )
 
         try writePackageState(for: vmID, in: package)
@@ -265,6 +302,7 @@ final class DefaultIntegrationService: IntegrationService {
             vmID: vmID.uuidString,
             generatedAtISO8601: formatter.string(from: Date()),
             sharedResourcesConfigPath: package.integrationDirectory.appendingPathComponent("shared-resources.json").path,
+            windowPolicyConfigPath: package.integrationDirectory.appendingPathComponent("window-coherence-policy.json").path,
             launcherManifestPath: package.integrationDirectory.appendingPathComponent("launcher-manifest.json").path,
             rootlessConfigPath: package.integrationDirectory.appendingPathComponent("rootless-apps.json").path,
             hostScripts: hostScripts,

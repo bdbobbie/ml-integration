@@ -1353,9 +1353,11 @@ final class ML_IntegrationTests: XCTestCase {
 
         let expectedFiles = [
             "shared-resources.json",
+            "window-coherence-policy.json",
             "launcher-manifest.json",
             "rootless-apps.json",
             "integration-state.json",
+            "host-scripts/apply-window-coherence.command",
             "host-scripts/launch-linux-terminal.command",
             "host-scripts/launch-linux-files.command",
             "host-scripts/launch-linux-browser.command",
