@@ -1096,6 +1096,18 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         activeRuntimeVMIDs.contains(id)
     }
 
+    func stopAllRunningVMs() async {
+        let runningVMIDs = activeRuntimeVMIDs
+        guard !runningVMIDs.isEmpty else {
+            vmRuntimeStatusMessage = "No running VMs to stop."
+            return
+        }
+        for vmID in runningVMIDs {
+            await stopManagedVM(vmID)
+        }
+        vmRuntimeStatusMessage = "Stopped \(runningVMIDs.count) running VM(s)."
+    }
+
     func escalateToDevelopers(
         issueTitle: String,
         issueDetails: String,

@@ -1357,6 +1357,61 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testStopAllRunningVMsStopsTrackedRuntimeFleet() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-stop-all",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected VM id after scaffold.")
+            return
+        }
+
+        await viewModel.startManagedVM(vmID)
+        XCTAssertTrue(viewModel.activeRuntimeVMIDs.contains(vmID))
+
+        await viewModel.stopAllRunningVMs()
+        XCTAssertTrue(viewModel.activeRuntimeVMIDs.isEmpty)
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("Stopped 1 running VM"))
+    }
+
+    @MainActor
+    func testStopAllRunningVMsNoopWhenNothingRunning() async {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.stopAllRunningVMs()
+        XCTAssertEqual(viewModel.vmRuntimeStatusMessage, "No running VMs to stop.")
+    }
+
+    @MainActor
     func testOnlyOneVMCanRunAtATimeAcrossSessions() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }

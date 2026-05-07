@@ -1641,6 +1641,15 @@ struct ContentView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 
+                            Button("Stop All Running VMs") {
+                                Task {
+                                    await runtimeWorkbench.stopAllRunningVMs()
+                                    presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                }
+                            }
+                            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                            .disabled(isCreatingVM || runtimeWorkbench.activeRuntimeVMIDs.isEmpty)
+
                             ForEach(runtimeWorkbench.installedVMEntries) { entry in
                                 HStack(spacing: 10) {
                                     VStack(alignment: .leading, spacing: 2) {
@@ -1676,6 +1685,13 @@ struct ContentView: View {
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)
                                 }
+                                .padding(8)
+                                .background((selectedInstalledVMID == entry.id ? Color.blue.opacity(0.12) : Color.clear))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(selectedInstalledVMID == entry.id ? Color.blue.opacity(0.45) : Color.white.opacity(0.12), lineWidth: 1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
                         }
 
