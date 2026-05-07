@@ -982,7 +982,9 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
         do {
             let actions = try await healthService.applyAutomaticRepair(for: vmID)
-            healthReport = actions
+            let postHealReport = try await healthService.runHealthCheck(for: vmID)
+            coherenceWindowPolicySchemaValid = postHealReport.contains("OK: Window coherence policy schema valid")
+            healthReport = actions + ["Post-heal verification:"] + postHealReport
             healthStatusMessage = "Auto-heal completed for VM \(vmID.uuidString)."
             await logRunEvent(stage: .autoHeal, result: .success, vmID: vmID, message: healthStatusMessage)
         } catch {

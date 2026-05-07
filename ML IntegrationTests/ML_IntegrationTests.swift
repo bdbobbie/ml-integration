@@ -1161,6 +1161,67 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testAutoHealRepairsInvalidWindowPolicySchema() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-auto-heal-window-policy-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: DefaultHealthAndRepairService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-auto-heal-window-policy",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        await viewModel.prepareCoherenceEssentials()
+
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected active VM ID after scaffold install.")
+            return
+        }
+
+        let policyURL = RuntimeEnvironment.mlIntegrationRootURL()
+            .appendingPathComponent("integration", isDirectory: true)
+            .appendingPathComponent(vmID.uuidString, isDirectory: true)
+            .appendingPathComponent("window-coherence-policy.json")
+        try Data("{\"vmID\":\"broken\"}".utf8).write(to: policyURL, options: [.atomic])
+
+        await viewModel.runHealthCheck()
+        XCTAssertFalse(viewModel.coherenceWindowPolicySchemaValid)
+
+        await viewModel.applyAutoHeal()
+        XCTAssertTrue(viewModel.healthStatusMessage.contains("Auto-heal completed"))
+        XCTAssertTrue(viewModel.coherenceWindowPolicySchemaValid)
+        XCTAssertTrue(viewModel.healthReport.contains("OK: Window coherence policy schema valid"))
+    }
+
+    @MainActor
     func testVMRuntimeLifecycleStartStopRestartAfterScaffold() async throws {
         let installerURL = try makeTemporaryInstallerImage()
         defer { try? FileManager.default.removeItem(at: installerURL) }
