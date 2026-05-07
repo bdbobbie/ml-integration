@@ -88,6 +88,7 @@ struct ContentView: View {
     @State private var remediationHistoryStatusFilter: IntegrationRemediationHistoryStatusFilter = .all
     @State private var remediationHistoryRecentFirst: Bool = true
     @State private var launcherHistoryStatusFilter: LauncherHistoryStatusFilter = .all
+    @State private var launcherHistorySearchTerm: String = ""
     @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @AppStorage("visualStyleMode") private var visualStyleModeRaw: String = VisualStyleMode.nativeMac.rawValue
     @AppStorage("lightIntensity") private var lightIntensity: Double = 1.0
@@ -1684,6 +1685,9 @@ struct ContentView: View {
                             }
                             .pickerStyle(.segmented)
 
+                            TextField("Search launcher history", text: $launcherHistorySearchTerm)
+                                .textFieldStyle(.roundedBorder)
+
                             Button("Stop All Running VMs") {
                                 Task {
                                     await runtimeWorkbench.stopAllRunningVMs()
@@ -1942,6 +1946,7 @@ struct ContentView: View {
                                                     runtimeWorkbench.launcherRunHistoryPreview(
                                                         vmID: entry.id,
                                                         statusFilter: launcherHistoryStatusFilter,
+                                                        searchTerm: launcherHistorySearchTerm,
                                                         limit: 3
                                                     ).enumerated()
                                                 ),

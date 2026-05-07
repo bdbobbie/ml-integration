@@ -1292,6 +1292,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     func launcherRunHistoryPreview(
         vmID: UUID,
         statusFilter: LauncherHistoryStatusFilter,
+        searchTerm: String = "",
         limit: Int = 3
     ) -> [String] {
         let filtered: [LauncherRunState]
@@ -1305,7 +1306,17 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         case .failed:
             filtered = launcherRunHistory(for: vmID).filter { $0.status == .failed }
         }
-        return Array(filtered.prefix(max(0, limit))).map { state in
+        let trimmed = searchTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        let searched: [LauncherRunState]
+        if trimmed.isEmpty {
+            searched = filtered
+        } else {
+            searched = filtered.filter { state in
+                state.launcherName.localizedCaseInsensitiveContains(trimmed) ||
+                    state.message.localizedCaseInsensitiveContains(trimmed)
+            }
+        }
+        return Array(searched.prefix(max(0, limit))).map { state in
             "\(state.launcherName) • \(state.status.rawValue) • \(state.message)"
         }
     }

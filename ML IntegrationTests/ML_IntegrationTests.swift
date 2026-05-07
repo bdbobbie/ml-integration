@@ -2665,6 +2665,70 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testLauncherRunHistoryPreviewFiltersByStatusAndSearchTerm() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-launcher-preview-filter-search-\(UUID().uuidString)", isDirectory: true)
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous { setenv(envKey, previous, 1) } else { unsetenv(envKey) }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: DefaultIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            launcherExecutor: MockLauncherScriptExecutor()
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-launcher-preview-filter-search",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else { XCTFail("Expected VM id after scaffold."); return }
+        await viewModel.prepareCoherenceEssentials()
+        let entries = viewModel.integrationCapabilities(for: vmID).launcherEntries
+        guard entries.count >= 2 else {
+            XCTFail("Expected at least two launcher entries.")
+            return
+        }
+
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: entries[0].id)
+        await viewModel.launchIntegratedApp(vmID: vmID, launcherEntryID: entries[1].id)
+
+        let specific = viewModel.launcherRunHistoryPreview(
+            vmID: vmID,
+            statusFilter: .succeeded,
+            searchTerm: entries[0].name,
+            limit: 3
+        )
+        let missing = viewModel.launcherRunHistoryPreview(
+            vmID: vmID,
+            statusFilter: .succeeded,
+            searchTerm: "no-match-term",
+            limit: 3
+        )
+
+        XCTAssertFalse(specific.isEmpty)
+        XCTAssertTrue(specific.allSatisfy { $0.localizedCaseInsensitiveContains(entries[0].name) })
+        XCTAssertTrue(missing.isEmpty)
+    }
+
+    @MainActor
     func testVerifySharedFolderAndClipboardPassesWhenArtifactsValid() async throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }
