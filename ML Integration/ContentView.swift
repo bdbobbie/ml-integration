@@ -2016,6 +2016,20 @@ struct ContentView: View {
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)
 
+                                    Button("Copy Launcher History") {
+                                        let text = runtimeWorkbench.formattedLauncherRunHistory(vmID: entry.id, limit: 5)
+                                        if text.isEmpty {
+                                            presentInfo("No launcher history to copy for VM \(entry.vmName).")
+                                        } else {
+                                            let pasteboard = NSPasteboard.general
+                                            pasteboard.clearContents()
+                                            pasteboard.setString(text, forType: .string)
+                                            presentInfo("Copied launcher history for VM \(entry.vmName).")
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
                                     Button("Clear Launcher History") {
                                         runtimeWorkbench.confirmClearLauncherRunHistory(vmID: entry.id)
                                         presentInfo(runtimeWorkbench.integrationStatusMessage)
