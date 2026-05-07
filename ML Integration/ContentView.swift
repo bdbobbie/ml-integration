@@ -1634,6 +1634,52 @@ struct ContentView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
+                            Text("Runtime Fleet")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Text(runtimeWorkbench.runtimeFleetStatusSummary())
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            ForEach(runtimeWorkbench.installedVMEntries) { entry in
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(entry.distribution.rawValue) • \(entry.vmName)")
+                                            .font(.caption)
+                                        Text(runtimeWorkbench.isManagedVMRunning(entry.id) ? "Running" : "Stopped")
+                                            .font(.caption2)
+                                            .foregroundColor(runtimeWorkbench.isManagedVMRunning(entry.id) ? .green : .secondary)
+                                    }
+                                    Spacer()
+                                    Button("Start") {
+                                        Task {
+                                            if requiresQEMURuntimeProbe(entry.runtimeEngine) {
+                                                let qemuReady = await runtimeWorkbench.probeQEMUAvailability(for: entry.architecture)
+                                                if !qemuReady {
+                                                    presentError(runtimeWorkbench.qemuRuntimeStatusMessage)
+                                                    return
+                                                }
+                                            }
+                                            await runtimeWorkbench.startManagedVM(entry.id)
+                                            presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
+                                    Button("Stop") {
+                                        Task {
+                                            await runtimeWorkbench.stopManagedVM(entry.id)
+                                            presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+                                }
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
                             Button("Prepare Coherence Essentials") {
                                 Task {
                                     await runtimeWorkbench.selectManagedVM(selectedInstalledVMID)

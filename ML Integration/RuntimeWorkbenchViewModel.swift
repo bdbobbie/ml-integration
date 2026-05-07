@@ -1092,6 +1092,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return "Runtime fleet | Installed: \(installedVMEntries.count) | Running: \(runningCount)"
     }
 
+    func isManagedVMRunning(_ id: UUID) -> Bool {
+        activeRuntimeVMIDs.contains(id)
+    }
+
     func escalateToDevelopers(
         issueTitle: String,
         issueDetails: String,
