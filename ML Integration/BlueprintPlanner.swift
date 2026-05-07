@@ -453,6 +453,15 @@ final class BlueprintPlanner: ObservableObject {
     }
 
     @discardableResult
+    func completeDeliveryAction(id: String) -> Bool {
+        guard let index = deliveryActionItems.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        deliveryActionItems[index].status = .complete
+        return true
+    }
+
+    @discardableResult
     func exportPhaseStateReport() -> URL? {
         do {
             let url = try persistPhaseStateReport()

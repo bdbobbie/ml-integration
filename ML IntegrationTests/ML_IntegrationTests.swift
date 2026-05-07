@@ -324,6 +324,28 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testCompleteDeliveryActionMarksItemCompleteAndUpdatesProgress() {
+        let planner = BlueprintPlanner()
+        XCTAssertEqual(planner.deliveryActionProgressSummary, "0/9 delivery actions complete")
+
+        let completed = planner.completeDeliveryAction(id: "linux-window-coherence")
+        XCTAssertTrue(completed)
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "linux-window-coherence" })?.status,
+            .complete
+        )
+        XCTAssertEqual(planner.deliveryActionProgressSummary, "1/9 delivery actions complete")
+    }
+
+    @MainActor
+    func testCompleteDeliveryActionReturnsFalseForUnknownID() {
+        let planner = BlueprintPlanner()
+        let completed = planner.completeDeliveryAction(id: "does-not-exist")
+        XCTAssertFalse(completed)
+        XCTAssertEqual(planner.deliveryActionProgressSummary, "0/9 delivery actions complete")
+    }
+
+    @MainActor
     func testPhaseStateReportExportPersistsArtifact() throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }
