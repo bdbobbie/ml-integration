@@ -381,6 +381,53 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testLinuxAppOnboardingDeliveryActionTransitionsPendingToInProgress() {
+        let planner = BlueprintPlanner()
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "linux-app-onboarding" })?.status,
+            .pending
+        )
+
+        planner.setDeliveryActionStatus(id: "linux-app-onboarding", to: .inProgress)
+
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "linux-app-onboarding" })?.status,
+            .inProgress
+        )
+        XCTAssertEqual(planner.deliveryActionProgressSummary, "0/9 delivery actions complete")
+    }
+
+    @MainActor
+    func testLinuxAppOnboardingDeliveryActionTransitionsInProgressToComplete() {
+        let planner = BlueprintPlanner()
+        planner.setDeliveryActionStatus(id: "linux-app-onboarding", to: .inProgress)
+        let completed = planner.completeDeliveryAction(id: "linux-app-onboarding")
+
+        XCTAssertTrue(completed)
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "linux-app-onboarding" })?.status,
+            .complete
+        )
+        XCTAssertEqual(planner.deliveryActionProgressSummary, "1/9 delivery actions complete")
+    }
+
+    @MainActor
+    func testLinuxAppOnboardingDeliveryActionCanResetBackToPendingAfterComplete() {
+        let planner = BlueprintPlanner()
+        _ = planner.completeDeliveryAction(id: "linux-app-onboarding")
+        XCTAssertEqual(planner.deliveryActionProgressSummary, "1/9 delivery actions complete")
+
+        let reset = planner.resetDeliveryActionToPending(id: "linux-app-onboarding")
+
+        XCTAssertTrue(reset)
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "linux-app-onboarding" })?.status,
+            .pending
+        )
+        XCTAssertEqual(planner.deliveryActionProgressSummary, "0/9 delivery actions complete")
+    }
+
+    @MainActor
     func testPhaseStateReportExportPersistsArtifact() throws {
         let envKey = RuntimeEnvironment.testRootEnvironmentVariable
         let previous = getenv(envKey).map { String(cString: $0) }
