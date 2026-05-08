@@ -2727,6 +2727,113 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testQueuedStartsPersistAcrossViewModelRelaunch() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-queue-persist-\(UUID().uuidString)", isDirectory: true)
+        let installerURL = try makeTemporaryInstallerImage()
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+            try? FileManager.default.removeItem(at: installerURL)
+        }
+
+        let first = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await first.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-queue-persist",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let queuedVMID = first.activeVMID else {
+            XCTFail("Expected queued VM id")
+            return
+        }
+        first.enqueueManagedVMStart(queuedVMID)
+        XCTAssertEqual(first.queuedStartVMIDs, [queuedVMID])
+
+        let second = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+        await second.reconcileManagedVMIdentifiers()
+        XCTAssertEqual(second.queuedStartVMIDs, [queuedVMID])
+    }
+
+    @MainActor
+    func testReconcilePrunesStaleQueuedStartIDs() async throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-queue-stale-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        try FileManager.default.createDirectory(at: testRoot, withIntermediateDirectories: true)
+        let staleID = UUID()
+        let settingsURL = testRoot.appendingPathComponent("runtime-concurrency-settings.json")
+        let payload: [String: Any] = [
+            "maxConcurrentRunningVMs": 1,
+            "queuedStartOrderRawValue": "FIFO",
+            "queuedStartVMIDStrings": [staleID.uuidString]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+        try data.write(to: settingsURL, options: .atomic)
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+        XCTAssertEqual(viewModel.queuedStartVMIDs, [staleID])
+
+        await viewModel.reconcileManagedVMIdentifiers()
+        XCTAssertTrue(viewModel.queuedStartVMIDs.isEmpty)
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

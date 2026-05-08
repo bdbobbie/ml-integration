@@ -201,6 +201,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private struct RuntimeConcurrencySettings: Codable {
         let maxConcurrentRunningVMs: Int
         let queuedStartOrderRawValue: String?
+        let queuedStartVMIDStrings: [String]?
     }
 
     init(
@@ -493,6 +494,14 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
         if self.activeVMID == nil && self.lastManagedVMID == nil {
             clearRuntimeSessionSnapshot()
+        }
+        let queueCountBeforePrune = queuedStartVMIDs.count
+        queuedStartVMIDs.removeAll { !validIDs.contains($0) }
+        if queuedStartVMIDs.count != queueCountBeforePrune {
+            let validQueuedIDs = Set(queuedStartVMIDs)
+            queuedStartRetryCounts = queuedStartRetryCounts.filter { validQueuedIDs.contains($0.key) }
+            queuedStartNextAttemptAtByVMID = queuedStartNextAttemptAtByVMID.filter { validQueuedIDs.contains($0.key) }
+            persistRuntimeConcurrencySettings()
         }
 
         if previousActive != self.activeVMID || previousLast != self.lastManagedVMID {
@@ -1104,12 +1113,20 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
            let restoredOrder = QueueOrder(rawValue: raw) {
             queuedStartOrder = restoredOrder
         }
+        if let queuedIDStrings = settings.queuedStartVMIDStrings {
+            queuedStartVMIDs = queuedIDStrings.compactMap(UUID.init(uuidString:))
+            for vmID in queuedStartVMIDs {
+                queuedStartRetryCounts[vmID] = queuedStartRetryCounts[vmID] ?? 0
+                queuedStartNextAttemptAtByVMID[vmID] = nil
+            }
+        }
     }
 
     private func persistRuntimeConcurrencySettings() {
         let settings = RuntimeConcurrencySettings(
             maxConcurrentRunningVMs: maxConcurrentRunningVMs,
-            queuedStartOrderRawValue: queuedStartOrder.rawValue
+            queuedStartOrderRawValue: queuedStartOrder.rawValue,
+            queuedStartVMIDStrings: queuedStartVMIDs.map(\.uuidString)
         )
         do {
             try FileManager.default.createDirectory(
@@ -1335,6 +1352,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         queuedStartVMIDs.append(id)
         queuedStartRetryCounts[id] = queuedStartRetryCounts[id] ?? 0
         queuedStartNextAttemptAtByVMID[id] = nil
+        persistRuntimeConcurrencySettings()
         let queuedNames = queuedStartVMIDs.compactMap { queuedID in
             installedVMEntries.first(where: { $0.id == queuedID })?.vmName
         }
@@ -1345,6 +1363,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         queuedStartVMIDs.removeAll { $0 == id }
         queuedStartRetryCounts[id] = nil
         queuedStartNextAttemptAtByVMID[id] = nil
+        persistRuntimeConcurrencySettings()
     }
 
     func queuedStartEntries() -> [VMRegistryEntry] {
@@ -1354,6 +1373,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     private func processQueuedStartsIfCapacityAvailable() async {
+        defer { persistRuntimeConcurrencySettings() }
         var cooldownSkips = 0
         while !queuedStartVMIDs.isEmpty && activeRuntimeVMIDs.count < maxConcurrentRunningVMs {
             let nextVMID: UUID
