@@ -1591,6 +1591,24 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             "Queue health: \(readyCount) ready, \(cooldownCount) cooling down, \(retryingCount) with retry history."
     }
 
+    func queueSchedulerStatusSummary(now: Date = Date()) -> String {
+        guard !queuedStartVMIDs.isEmpty else {
+            return "Queue scheduler: idle (no queued VMs)."
+        }
+        let capacityRemaining = maxConcurrentRunningVMs - activeRuntimeVMIDs.count
+        if capacityRemaining <= 0 {
+            return "Queue scheduler: waiting for runtime capacity."
+        }
+        let queuedIDs = Set(queuedStartVMIDs)
+        let hasReadyItem = queuedStartVMIDs.contains { vmID in
+            queuedIDs.contains(vmID) && ((queuedStartNextAttemptAtByVMID[vmID] ?? .distantPast) <= now)
+        }
+        if hasReadyItem {
+            return "Queue scheduler: ready to process queued starts."
+        }
+        return "Queue scheduler: waiting for retry cooldown."
+    }
+
     func fleetEntries(filteredBy filter: FleetStateFilter) -> [VMRegistryEntry] {
         installedVMEntries
             .filter { entry in

@@ -3290,6 +3290,79 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testQueueSchedulerStatusSummaryReportsIdleWhenQueueEmpty() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        XCTAssertEqual(viewModel.queueSchedulerStatusSummary(), "Queue scheduler: idle (no queued VMs).")
+    }
+
+    @MainActor
+    func testQueueSchedulerStatusSummaryReportsCapacityWaitWhenFull() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-scheduler-capacity-a",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let runningVM = viewModel.activeVMID else {
+            XCTFail("Expected running vm id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-scheduler-capacity-b",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let queuedVM = viewModel.activeVMID else {
+            XCTFail("Expected queued vm id")
+            return
+        }
+
+        await viewModel.startManagedVM(runningVM)
+        viewModel.enqueueManagedVMStart(queuedVM)
+
+        XCTAssertEqual(
+            viewModel.queueSchedulerStatusSummary(),
+            "Queue scheduler: waiting for runtime capacity."
+        )
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

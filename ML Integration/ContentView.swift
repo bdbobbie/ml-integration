@@ -1943,6 +1943,17 @@ struct ContentView: View {
                             Text(runtimeWorkbench.queueHealthSummary())
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
+                            Text(runtimeWorkbench.queueSchedulerStatusSummary())
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Button("Run Queue Tick Now") {
+                                Task {
+                                    await runtimeWorkbench.runQueuedStartSchedulerTick()
+                                    presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                }
+                            }
+                            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                            .disabled(isCreatingVM || runtimeWorkbench.queuedStartVMIDs.isEmpty)
                             if !runtimeWorkbench.queuedStartEntries().isEmpty {
                                 Text(
                                     "Queued starts: " +
