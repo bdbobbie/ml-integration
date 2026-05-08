@@ -3415,6 +3415,64 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testQueueNextRetryCountdownSummaryReportsNAWhenQueueEmpty() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        XCTAssertEqual(viewModel.queueNextRetryCountdownSummary(), "Queue retry countdown: n/a (queue empty).")
+    }
+
+    @MainActor
+    func testQueueNextRetryCountdownSummaryReportsSecondsWhenCooldownActive() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-countdown-cooldown",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected vm id")
+            return
+        }
+        await provisioning.injectStartFailure(for: vmID)
+        viewModel.enqueueManagedVMStart(vmID)
+        await viewModel.runQueuedStartSchedulerTick() // creates cooldown
+
+        let summary = viewModel.queueNextRetryCountdownSummary()
+        XCTAssertTrue(summary.contains("Queue retry countdown: ~"))
+        XCTAssertTrue(summary.contains("s."))
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

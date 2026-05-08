@@ -1627,6 +1627,21 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return "Queue next attempt: \(nextRetryDate.formatted(date: .omitted, time: .standard))."
     }
 
+    func queueNextRetryCountdownSummary(now: Date = Date()) -> String {
+        guard !queuedStartVMIDs.isEmpty else {
+            return "Queue retry countdown: n/a (queue empty)."
+        }
+        let queuedIDs = Set(queuedStartVMIDs)
+        let futureRetries = queuedStartNextAttemptAtByVMID
+            .filter { queuedIDs.contains($0.key) && $0.value > now }
+            .map(\.value)
+        guard let soonestRetry = futureRetries.min() else {
+            return "Queue retry countdown: ready now."
+        }
+        let seconds = max(1, Int(ceil(soonestRetry.timeIntervalSince(now))))
+        return "Queue retry countdown: ~\(seconds)s."
+    }
+
     func fleetEntries(filteredBy filter: FleetStateFilter) -> [VMRegistryEntry] {
         installedVMEntries
             .filter { entry in

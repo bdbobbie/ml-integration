@@ -1949,6 +1949,9 @@ struct ContentView: View {
                             Text(runtimeWorkbench.queueNextAttemptSummary())
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
+                            Text(runtimeWorkbench.queueNextRetryCountdownSummary())
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                             Button("Run Queue Tick Now") {
                                 Task {
                                     await runtimeWorkbench.runQueuedStartSchedulerTick()
