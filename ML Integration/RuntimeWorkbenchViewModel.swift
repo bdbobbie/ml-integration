@@ -185,6 +185,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         let timeoutSeconds: Int
     }
 
+    private struct RuntimeConcurrencySettings: Codable {
+        let maxConcurrentRunningVMs: Int
+    }
+
     init(
         hostService: HostProfileService? = nil,
         catalogService: DistributionCatalogService? = nil,
@@ -220,6 +224,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         self.integrationRemediationDeletionTimeoutSeconds = max(1, deletionArmDurationSeconds)
         self.maxConcurrentRunningVMs = max(1, maxConcurrentRunningVMs)
         loadIntegrationRemediationDeletionSafetyPreferences()
+        loadRuntimeConcurrencySettings()
 
         traceVM("Build marker: VM-LAUNCH-DIAG-2026-04-23T00:00Z")
         Task {
@@ -1056,6 +1061,34 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     func updateMaxConcurrentRunningVMs(_ newLimit: Int) {
         maxConcurrentRunningVMs = max(1, newLimit)
+        persistRuntimeConcurrencySettings()
+    }
+
+    private func runtimeConcurrencySettingsURL() -> URL {
+        baseDirectory().appendingPathComponent("runtime-concurrency-settings.json", isDirectory: false)
+    }
+
+    private func loadRuntimeConcurrencySettings() {
+        let url = runtimeConcurrencySettingsURL()
+        guard let data = try? Data(contentsOf: url),
+              let settings = try? JSONDecoder().decode(RuntimeConcurrencySettings.self, from: data) else {
+            return
+        }
+        maxConcurrentRunningVMs = max(1, settings.maxConcurrentRunningVMs)
+    }
+
+    private func persistRuntimeConcurrencySettings() {
+        let settings = RuntimeConcurrencySettings(maxConcurrentRunningVMs: maxConcurrentRunningVMs)
+        do {
+            try FileManager.default.createDirectory(
+                at: runtimeConcurrencySettingsURL().deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try JSONEncoder().encode(settings)
+            try data.write(to: runtimeConcurrencySettingsURL(), options: [.atomic])
+        } catch {
+            vmRuntimeStatusMessage = "Runtime concurrency settings persistence failed: \(error.localizedDescription)"
+        }
     }
 
     func stopActiveVM() async -> Bool {
