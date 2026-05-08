@@ -3473,6 +3473,79 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testQueueStateJSONReturnsEmptyWhenQueueIsEmpty() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        XCTAssertEqual(viewModel.queueStateJSON(), "")
+    }
+
+    @MainActor
+    func testQueueStateJSONIncludesQueueOrderAndItems() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 2
+        )
+        viewModel.updateQueuedStartOrder(.lifo)
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-queue-state-a",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmA = viewModel.activeVMID else {
+            XCTFail("Expected vmA id")
+            return
+        }
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-queue-state-b",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmB = viewModel.activeVMID else {
+            XCTFail("Expected vmB id")
+            return
+        }
+
+        viewModel.enqueueManagedVMStart(vmA)
+        viewModel.enqueueManagedVMStart(vmB)
+        let json = viewModel.queueStateJSON()
+
+        XCTAssertFalse(json.isEmpty)
+        XCTAssertTrue(json.contains("\"queueOrder\" : \"LIFO\""))
+        XCTAssertTrue(json.contains("\"queueLength\" : 2"))
+        XCTAssertTrue(json.contains("vm-queue-state-a"))
+        XCTAssertTrue(json.contains("vm-queue-state-b"))
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

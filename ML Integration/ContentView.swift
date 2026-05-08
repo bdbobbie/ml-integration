@@ -1981,6 +1981,20 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)
+
+                                    Button("Copy Queue State JSON") {
+                                        let text = runtimeWorkbench.queueStateJSON()
+                                        if text.isEmpty {
+                                            presentInfo("No queue state available to copy.")
+                                        } else {
+                                            let pasteboard = NSPasteboard.general
+                                            pasteboard.clearContents()
+                                            pasteboard.setString(text, forType: .string)
+                                            presentInfo("Copied queue state JSON.")
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
                                 }
                             }
                             if !runtimeWorkbench.queueEventPreview(limit: 3).isEmpty {

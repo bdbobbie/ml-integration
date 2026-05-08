@@ -1475,6 +1475,55 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
     }
 
+    func queueStateJSON(now: Date = Date()) -> String {
+        struct QueueItemSnapshot: Codable {
+            let vmID: UUID
+            let vmName: String
+            let retryCount: Int
+            let nextAttemptAt: String?
+            let isCoolingDown: Bool
+        }
+        struct QueueStateSnapshot: Codable {
+            let generatedAt: String
+            let queueOrder: String
+            let queueLength: Int
+            let maxConcurrentRunningVMs: Int
+            let activeRuntimeVMIDs: [UUID]
+            let items: [QueueItemSnapshot]
+        }
+
+        guard !queuedStartVMIDs.isEmpty else { return "" }
+        let formatter = ISO8601DateFormatter()
+        let items = queuedStartVMIDs.map { vmID in
+            let vmName = installedVMEntries.first(where: { $0.id == vmID })?.vmName ?? vmID.uuidString
+            let retryCount = queuedStartRetryCounts[vmID] ?? 0
+            let nextAttemptAt = queuedStartNextAttemptAtByVMID[vmID]
+            return QueueItemSnapshot(
+                vmID: vmID,
+                vmName: vmName,
+                retryCount: retryCount,
+                nextAttemptAt: nextAttemptAt.map { formatter.string(from: $0) },
+                isCoolingDown: (nextAttemptAt ?? .distantPast) > now
+            )
+        }
+        let snapshot = QueueStateSnapshot(
+            generatedAt: formatter.string(from: now),
+            queueOrder: queuedStartOrder.rawValue,
+            queueLength: queuedStartVMIDs.count,
+            maxConcurrentRunningVMs: maxConcurrentRunningVMs,
+            activeRuntimeVMIDs: activeRuntimeVMIDs,
+            items: items
+        )
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(snapshot)
+            return String(decoding: data, as: UTF8.self)
+        } catch {
+            return ""
+        }
+    }
+
     private func processQueuedStartsIfCapacityAvailable() async {
         defer { persistRuntimeConcurrencySettings() }
         var cooldownSkips = 0
