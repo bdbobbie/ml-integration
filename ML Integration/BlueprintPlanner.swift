@@ -406,7 +406,8 @@ final class BlueprintPlanner: ObservableObject {
         plannerReady: Bool,
         phaseSweepReady: Bool,
         phase2DisplayReady: Bool,
-        step4QueueReady: Bool
+        step4QueueReady: Bool,
+        automationPassing: Bool
     ) {
         setDeliveryActionStatus(
             id: "linux-window-coherence",
@@ -438,11 +439,13 @@ final class BlueprintPlanner: ObservableObject {
         )
         setDeliveryActionStatus(
             id: "ci-stability",
-            to: .pending
+            to: automationPassing ? .complete : (plannerReady ? .inProgress : .pending)
         )
         setDeliveryActionStatus(
             id: "e2e-runtime-tests",
-            to: plannerReady ? .inProgress : .pending
+            to: (automationPassing && phaseSweepReady && step4QueueReady)
+                ? .complete
+                : (plannerReady ? .inProgress : .pending)
         )
     }
 

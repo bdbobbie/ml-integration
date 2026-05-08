@@ -307,7 +307,8 @@ final class ML_IntegrationTests: XCTestCase {
             plannerReady: true,
             phaseSweepReady: true,
             phase2DisplayReady: true,
-            step4QueueReady: false
+            step4QueueReady: false,
+            automationPassing: false
         )
 
         XCTAssertEqual(
@@ -331,11 +332,33 @@ final class ML_IntegrationTests: XCTestCase {
             plannerReady: true,
             phaseSweepReady: true,
             phase2DisplayReady: true,
-            step4QueueReady: true
+            step4QueueReady: true,
+            automationPassing: false
         )
 
         XCTAssertEqual(
             planner.deliveryActionItems.first(where: { $0.id == "multi-vm-concurrency" })?.status,
+            .complete
+        )
+    }
+
+    @MainActor
+    func testDeliveryActionItemsMarksCIRuntimeActionsCompleteWhenAutomationPassing() {
+        let planner = BlueprintPlanner()
+        planner.syncDeliveryActionItems(
+            plannerReady: true,
+            phaseSweepReady: true,
+            phase2DisplayReady: true,
+            step4QueueReady: true,
+            automationPassing: true
+        )
+
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "ci-stability" })?.status,
+            .complete
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "e2e-runtime-tests" })?.status,
             .complete
         )
     }

@@ -739,7 +739,8 @@ struct ContentView: View {
             plannerReady: blueprintPlanner.isReadyForEnvironmentTesting,
             phaseSweepReady: runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting(),
             phase2DisplayReady: readiness.displayV2Ready,
-            step4QueueReady: runtimeWorkbench.step4QueueReadiness().isReady
+            step4QueueReady: runtimeWorkbench.step4QueueReadiness().isReady,
+            automationPassing: blueprintPlanner.readinessCriteria.first(where: { $0.id == "automation-passing" })?.isSatisfied ?? false
         )
         syncLinuxAppOnboardingDeliveryAction()
     }
