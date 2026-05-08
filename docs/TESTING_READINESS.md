@@ -60,6 +60,15 @@ Must pass before environment runs:
 - Token persistence tests
 - UI smoke tests
 
+### Step 4 Queue UI Deferment Note
+- Date recorded: May 8, 2026.
+- Decision: Step 4 queue control XCUI automation is deferred.
+- Reason: current local runner has recurring xcodebuild/simulator permission/launch instability, causing flaky and non-actionable UI results.
+- Current coverage: Step 4 runtime fleet queue behavior is covered by unit and end-to-end integration tests in `ML_IntegrationTests`.
+- Exit criteria to remove deferment:
+  - stable UI runner in local/CI
+  - add one focused Step 4 queue XCUI flow (`Queue Start` + queue state transition assertions)
+
 ## 8) Observability
 Per run logs should include:
 - Correlation ID
