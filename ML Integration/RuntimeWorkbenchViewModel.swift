@@ -1609,6 +1609,24 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return "Queue scheduler: waiting for retry cooldown."
     }
 
+    func queueNextAttemptSummary(now: Date = Date()) -> String {
+        guard !queuedStartVMIDs.isEmpty else {
+            return "Queue next attempt: none (queue empty)."
+        }
+        let queuedIDs = Set(queuedStartVMIDs)
+        let nextRetryDate = queuedStartNextAttemptAtByVMID
+            .filter { queuedIDs.contains($0.key) }
+            .map(\.value)
+            .min()
+        guard let nextRetryDate else {
+            return "Queue next attempt: ready now."
+        }
+        if nextRetryDate <= now {
+            return "Queue next attempt: ready now."
+        }
+        return "Queue next attempt: \(nextRetryDate.formatted(date: .omitted, time: .standard))."
+    }
+
     func fleetEntries(filteredBy filter: FleetStateFilter) -> [VMRegistryEntry] {
         installedVMEntries
             .filter { entry in
