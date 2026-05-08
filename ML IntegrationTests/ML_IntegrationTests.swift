@@ -2132,6 +2132,139 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testLoweringConcurrencyLimitBlocksSubsequentStartsWithoutStoppingRunningVMs() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 3
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-a-limit",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmA = viewModel.activeVMID else {
+            XCTFail("Expected vmA id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-b-limit",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmB = viewModel.activeVMID else {
+            XCTFail("Expected vmB id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .debian,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-c-limit",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmC = viewModel.activeVMID else {
+            XCTFail("Expected vmC id")
+            return
+        }
+
+        await viewModel.startManagedVM(vmA)
+        await viewModel.startManagedVM(vmB)
+        XCTAssertEqual(Set(viewModel.activeRuntimeVMIDs), Set([vmA, vmB]))
+
+        viewModel.updateMaxConcurrentRunningVMs(1)
+        XCTAssertEqual(viewModel.maxConcurrentRunningVMs, 1)
+        XCTAssertTrue(viewModel.runtimeConcurrencyCapacitySummary().contains("2/1"))
+
+        await viewModel.startManagedVM(vmC)
+        XCTAssertEqual(viewModel.runtimeState(for: vmC), .failed)
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("Concurrency limit reached (1)"))
+        XCTAssertEqual(Set(viewModel.activeRuntimeVMIDs), Set([vmA, vmB]))
+    }
+
+    @MainActor
+    func testIncreasingConcurrencyLimitAllowsAdditionalStarts() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-x-limit",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmX = viewModel.activeVMID else {
+            XCTFail("Expected vmX id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-y-limit",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmY = viewModel.activeVMID else {
+            XCTFail("Expected vmY id")
+            return
+        }
+
+        await viewModel.startManagedVM(vmX)
+        await viewModel.startManagedVM(vmY)
+        XCTAssertEqual(viewModel.runtimeState(for: vmY), .failed)
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("Concurrency limit reached (1)"))
+
+        viewModel.updateMaxConcurrentRunningVMs(2)
+        await viewModel.startManagedVM(vmY)
+        XCTAssertEqual(viewModel.runtimeState(for: vmY), .running)
+        XCTAssertEqual(Set(viewModel.activeRuntimeVMIDs), Set([vmX, vmY]))
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
