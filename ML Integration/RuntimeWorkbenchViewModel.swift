@@ -50,6 +50,13 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         var id: String { rawValue }
     }
 
+    enum QueueOrder: String, CaseIterable, Identifiable, Codable {
+        case fifo = "FIFO"
+        case lifo = "LIFO"
+
+        var id: String { rawValue }
+    }
+
     @Published private(set) var hostProfile: HostProfile?
     @Published private(set) var hostErrorMessage: String = ""
 
@@ -110,6 +117,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var activeRuntimeVMIDs: [UUID] = []
     @Published private(set) var maxConcurrentRunningVMs: Int = 1
     @Published private(set) var queuedStartVMIDs: [UUID] = []
+    @Published private(set) var queuedStartOrder: QueueOrder = .fifo
     @Published private(set) var runtimeStateByVMID: [UUID: VMRuntimeState] = [:]
     @Published private(set) var fleetDiagnosticsByVMID: [UUID: FleetRuntimeDiagnostic] = [:]
     @Published private(set) var integrationCapabilitiesByVMID: [UUID: VMIntegrationCapabilities] = [:]
@@ -188,6 +196,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     private struct RuntimeConcurrencySettings: Codable {
         let maxConcurrentRunningVMs: Int
+        let queuedStartOrderRawValue: String?
     }
 
     init(
@@ -1066,6 +1075,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         Task { await processQueuedStartsIfCapacityAvailable() }
     }
 
+    func updateQueuedStartOrder(_ newOrder: QueueOrder) {
+        queuedStartOrder = newOrder
+        persistRuntimeConcurrencySettings()
+        Task { await processQueuedStartsIfCapacityAvailable() }
+    }
+
     private func runtimeConcurrencySettingsURL() -> URL {
         baseDirectory().appendingPathComponent("runtime-concurrency-settings.json", isDirectory: false)
     }
@@ -1077,10 +1092,17 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             return
         }
         maxConcurrentRunningVMs = max(1, settings.maxConcurrentRunningVMs)
+        if let raw = settings.queuedStartOrderRawValue,
+           let restoredOrder = QueueOrder(rawValue: raw) {
+            queuedStartOrder = restoredOrder
+        }
     }
 
     private func persistRuntimeConcurrencySettings() {
-        let settings = RuntimeConcurrencySettings(maxConcurrentRunningVMs: maxConcurrentRunningVMs)
+        let settings = RuntimeConcurrencySettings(
+            maxConcurrentRunningVMs: maxConcurrentRunningVMs,
+            queuedStartOrderRawValue: queuedStartOrder.rawValue
+        )
         do {
             try FileManager.default.createDirectory(
                 at: runtimeConcurrencySettingsURL().deletingLastPathComponent(),
@@ -1321,7 +1343,13 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     private func processQueuedStartsIfCapacityAvailable() async {
         while !queuedStartVMIDs.isEmpty && activeRuntimeVMIDs.count < maxConcurrentRunningVMs {
-            let nextVMID = queuedStartVMIDs.removeFirst()
+            let nextVMID: UUID
+            switch queuedStartOrder {
+            case .fifo:
+                nextVMID = queuedStartVMIDs.removeFirst()
+            case .lifo:
+                nextVMID = queuedStartVMIDs.removeLast()
+            }
             await startManagedVM(nextVMID)
             if runtimeState(for: nextVMID) != .running {
                 // Requeue only when blocked again by concurrency pressure.

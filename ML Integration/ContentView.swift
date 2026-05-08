@@ -1970,6 +1970,27 @@ struct ContentView: View {
                                 .frame(maxWidth: 220)
                                 .disabled(isCreatingVM)
                             }
+                            HStack(spacing: 8) {
+                                Text("Queue Order")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Picker(
+                                    "Queue Order",
+                                    selection: Binding(
+                                        get: { runtimeWorkbench.queuedStartOrder },
+                                        set: { newValue in
+                                            runtimeWorkbench.updateQueuedStartOrder(newValue)
+                                        }
+                                    )
+                                ) {
+                                    ForEach(RuntimeWorkbenchViewModel.QueueOrder.allCases) { order in
+                                        Text(order.rawValue).tag(order)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 220)
+                                .disabled(isCreatingVM)
+                            }
 
                             Picker("Filter", selection: $runtimeFleetFilter) {
                                 ForEach(RuntimeWorkbenchViewModel.FleetStateFilter.allCases) { filter in

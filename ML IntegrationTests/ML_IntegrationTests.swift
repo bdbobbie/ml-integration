@@ -2563,6 +2563,80 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testQueuedStartUsesLIFOOrderWhenConfigured() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+        viewModel.updateQueuedStartOrder(.lifo)
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-lifo-a",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmA = viewModel.activeVMID else {
+            XCTFail("Expected vmA id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-lifo-b",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmB = viewModel.activeVMID else {
+            XCTFail("Expected vmB id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .debian,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-lifo-c",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmC = viewModel.activeVMID else {
+            XCTFail("Expected vmC id")
+            return
+        }
+
+        await viewModel.startManagedVM(vmA)
+        viewModel.enqueueManagedVMStart(vmB)
+        viewModel.enqueueManagedVMStart(vmC)
+
+        viewModel.updateMaxConcurrentRunningVMs(3)
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertTrue(viewModel.queuedStartVMIDs.isEmpty)
+        XCTAssertEqual(Set(viewModel.activeRuntimeVMIDs), Set([vmA, vmB, vmC]))
+        XCTAssertEqual(viewModel.activeRuntimeVMIDs.suffix(2), [vmC, vmB])
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
