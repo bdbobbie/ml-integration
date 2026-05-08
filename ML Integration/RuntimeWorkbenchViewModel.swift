@@ -1443,6 +1443,32 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         Array(queueEvents.prefix(max(0, limit)))
     }
 
+    func queueEventsJSON(limit: Int = 50) -> String {
+        let events = queueEventPreview(limit: limit)
+        guard !events.isEmpty else { return "" }
+        struct QueueEventExport: Codable {
+            let id: UUID
+            let timestamp: String
+            let message: String
+        }
+        let formatter = ISO8601DateFormatter()
+        let payload = events.map { event in
+            QueueEventExport(
+                id: event.id,
+                timestamp: formatter.string(from: event.timestamp),
+                message: event.message
+            )
+        }
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(payload)
+            return String(decoding: data, as: UTF8.self)
+        } catch {
+            return ""
+        }
+    }
+
     private func processQueuedStartsIfCapacityAvailable() async {
         defer { persistRuntimeConcurrencySettings() }
         var cooldownSkips = 0

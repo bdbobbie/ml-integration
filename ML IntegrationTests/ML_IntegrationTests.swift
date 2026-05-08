@@ -3117,6 +3117,64 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testQueueEventsJSONReturnsEmptyWhenNoEventsExist() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        XCTAssertEqual(viewModel.queueEventsJSON(limit: 10), "")
+    }
+
+    @MainActor
+    func testQueueEventsJSONExportsRecentEvents() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-queue-json",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected vm id")
+            return
+        }
+        viewModel.enqueueManagedVMStart(vmID)
+        viewModel.resetQueuedStartRetries()
+        viewModel.dequeueManagedVMStart(vmID)
+
+        let json = viewModel.queueEventsJSON(limit: 10)
+        XCTAssertFalse(json.isEmpty)
+        XCTAssertTrue(json.contains("Queued start for"))
+        XCTAssertTrue(json.contains("Reset queued start retry cooldowns."))
+        XCTAssertTrue(json.contains("Removed queued start for"))
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

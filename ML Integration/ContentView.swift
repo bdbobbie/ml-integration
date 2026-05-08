@@ -1979,6 +1979,19 @@ struct ContentView: View {
                                         .foregroundColor(.secondary)
                                         .lineLimit(1)
                                     }
+                                    Button("Copy Queue Events JSON") {
+                                        let text = runtimeWorkbench.queueEventsJSON(limit: 30)
+                                        if text.isEmpty {
+                                            presentInfo("No queue events available to copy.")
+                                        } else {
+                                            let pasteboard = NSPasteboard.general
+                                            pasteboard.clearContents()
+                                            pasteboard.setString(text, forType: .string)
+                                            presentInfo("Copied queue events JSON.")
+                                        }
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
                                 }
                             }
 
