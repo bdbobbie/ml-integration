@@ -90,3 +90,9 @@ Go when all are true:
 - No blocker-severity open issues
 - Matrix hosts/fixtures are ready
 - Rollback/cleanup validation completed
+
+## 11) Step 5 Automation Progress
+- See `docs/STEP5_AUTOMATION_PROGRESS_GUIDE.md` for:
+  - signal-to-status mapping for `ci-stability` and `e2e-runtime-tests`
+  - Step 5 readiness gate interpretation
+  - validation workflow and coverage references
