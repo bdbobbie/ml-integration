@@ -2834,6 +2834,137 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testManualQueueReorderAffectsFIFORunOrder() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+        viewModel.updateQueuedStartOrder(.fifo)
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-manual-order-a",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmA = viewModel.activeVMID else {
+            XCTFail("Expected vmA id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-manual-order-b",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmB = viewModel.activeVMID else {
+            XCTFail("Expected vmB id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .debian,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-manual-order-c",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmC = viewModel.activeVMID else {
+            XCTFail("Expected vmC id")
+            return
+        }
+
+        await viewModel.startManagedVM(vmA)
+        viewModel.enqueueManagedVMStart(vmB)
+        viewModel.enqueueManagedVMStart(vmC)
+        XCTAssertEqual(viewModel.queuedStartVMIDs, [vmB, vmC])
+
+        viewModel.moveQueuedStartLater(vmB)
+        XCTAssertEqual(viewModel.queuedStartVMIDs, [vmC, vmB])
+
+        viewModel.updateMaxConcurrentRunningVMs(2)
+        try? await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertTrue(viewModel.activeRuntimeVMIDs.contains(vmC))
+        XCTAssertFalse(viewModel.activeRuntimeVMIDs.contains(vmB))
+    }
+
+    @MainActor
+    func testQueueMoveAvailabilityReflectsPosition() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-move-check-a",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmA = viewModel.activeVMID else {
+            XCTFail("Expected vmA id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-move-check-b",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmB = viewModel.activeVMID else {
+            XCTFail("Expected vmB id")
+            return
+        }
+
+        viewModel.enqueueManagedVMStart(vmA)
+        viewModel.enqueueManagedVMStart(vmB)
+
+        XCTAssertFalse(viewModel.canMoveQueuedStartEarlier(vmA))
+        XCTAssertTrue(viewModel.canMoveQueuedStartLater(vmA))
+        XCTAssertTrue(viewModel.canMoveQueuedStartEarlier(vmB))
+        XCTAssertFalse(viewModel.canMoveQueuedStartLater(vmB))
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

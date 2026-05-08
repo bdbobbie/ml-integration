@@ -1372,6 +1372,28 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
     }
 
+    func canMoveQueuedStartEarlier(_ id: UUID) -> Bool {
+        guard let index = queuedStartVMIDs.firstIndex(of: id) else { return false }
+        return index > 0
+    }
+
+    func canMoveQueuedStartLater(_ id: UUID) -> Bool {
+        guard let index = queuedStartVMIDs.firstIndex(of: id) else { return false }
+        return index < queuedStartVMIDs.count - 1
+    }
+
+    func moveQueuedStartEarlier(_ id: UUID) {
+        guard let index = queuedStartVMIDs.firstIndex(of: id), index > 0 else { return }
+        queuedStartVMIDs.swapAt(index, index - 1)
+        persistRuntimeConcurrencySettings()
+    }
+
+    func moveQueuedStartLater(_ id: UUID) {
+        guard let index = queuedStartVMIDs.firstIndex(of: id), index < queuedStartVMIDs.count - 1 else { return }
+        queuedStartVMIDs.swapAt(index, index + 1)
+        persistRuntimeConcurrencySettings()
+    }
+
     private func processQueuedStartsIfCapacityAvailable() async {
         defer { persistRuntimeConcurrencySettings() }
         var cooldownSkips = 0

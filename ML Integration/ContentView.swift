@@ -2354,6 +2354,20 @@ struct ContentView: View {
                                         .disabled(isCreatingVM)
                                     }
                                     if runtimeWorkbench.queuedStartVMIDs.contains(entry.id) {
+                                        Button("Move Up") {
+                                            runtimeWorkbench.moveQueuedStartEarlier(entry.id)
+                                            presentInfo("Moved \(entry.vmName) earlier in the queue.")
+                                        }
+                                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                        .disabled(isCreatingVM || !runtimeWorkbench.canMoveQueuedStartEarlier(entry.id))
+
+                                        Button("Move Down") {
+                                            runtimeWorkbench.moveQueuedStartLater(entry.id)
+                                            presentInfo("Moved \(entry.vmName) later in the queue.")
+                                        }
+                                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                        .disabled(isCreatingVM || !runtimeWorkbench.canMoveQueuedStartLater(entry.id))
+
                                         Button("Remove from Queue") {
                                             runtimeWorkbench.dequeueManagedVMStart(entry.id)
                                             presentInfo("Removed \(entry.vmName) from start queue.")
