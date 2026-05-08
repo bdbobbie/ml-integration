@@ -2196,6 +2196,7 @@ struct ContentView: View {
                                 let integrationCaps = runtimeWorkbench.integrationCapabilities(for: entry.id)
                                 let healthBadge = runtimeWorkbench.integrationHealthBadge(for: entry.id)
                                 let launcherRunState = runtimeWorkbench.launcherRunState(for: entry.id)
+                                let concurrencyBlockers = runtimeWorkbench.concurrencyBlockingEntries(for: entry.id)
                                 HStack(spacing: 10) {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("\(entry.distribution.rawValue) • \(entry.vmName)")
@@ -2233,6 +2234,14 @@ struct ContentView: View {
                                             .padding(.vertical, 2)
                                             .background(integrationHealthBadgeColor(healthBadge.status))
                                             .clipShape(Capsule())
+                                        if !concurrencyBlockers.isEmpty {
+                                            Text(
+                                                "Start blocked by concurrency limit (\(runtimeWorkbench.maxConcurrentRunningVMs)). Running: " +
+                                                concurrencyBlockers.map(\.vmName).joined(separator: ", ")
+                                            )
+                                            .font(.caption2)
+                                            .foregroundColor(.orange)
+                                        }
                                         if let launcherRunState {
                                             Text(
                                                 "Launcher \(launcherRunState.launcherName): \(launcherRunState.status.rawValue) @ " +
@@ -2284,6 +2293,30 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)
+
+                                    if !concurrencyBlockers.isEmpty {
+                                        Button("Stop Blocker") {
+                                            Task {
+                                                let didStop = await runtimeWorkbench.stopFirstConcurrencyBlocker(for: entry.id)
+                                                if didStop {
+                                                    presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                                } else {
+                                                    presentError("No running blocker could be stopped for \(entry.vmName).")
+                                                }
+                                            }
+                                        }
+                                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                        .disabled(isCreatingVM)
+
+                                        Button("Stop Blocker + Retry") {
+                                            Task {
+                                                await runtimeWorkbench.stopFirstConcurrencyBlockerAndRetryStart(for: entry.id)
+                                                presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                            }
+                                        }
+                                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                        .disabled(isCreatingVM)
+                                    }
 
                                     Button("Stop") {
                                         Task {

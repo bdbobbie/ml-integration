@@ -1264,6 +1264,32 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         await startActiveVM()
     }
 
+    func concurrencyBlockingEntries(for id: UUID) -> [VMRegistryEntry] {
+        let runningIDs = Set(activeRuntimeVMIDs)
+        guard !runningIDs.contains(id), runningIDs.count >= maxConcurrentRunningVMs else {
+            return []
+        }
+        return installedVMEntries
+            .filter { runningIDs.contains($0.id) }
+            .sorted { $0.vmName.localizedCaseInsensitiveCompare($1.vmName) == .orderedAscending }
+    }
+
+    func stopFirstConcurrencyBlocker(for id: UUID) async -> Bool {
+        guard let blocker = concurrencyBlockingEntries(for: id).first else {
+            return false
+        }
+        return await stopManagedVM(blocker.id)
+    }
+
+    func stopFirstConcurrencyBlockerAndRetryStart(for id: UUID) async {
+        let didStop = await stopFirstConcurrencyBlocker(for: id)
+        guard didStop else {
+            vmRuntimeStatusMessage = "No running blocker was stopped for \(id.uuidString)."
+            return
+        }
+        await startManagedVM(id)
+    }
+
     func stopManagedVM(_ id: UUID) async -> Bool {
         await selectManagedVM(id)
         return await stopActiveVM()
