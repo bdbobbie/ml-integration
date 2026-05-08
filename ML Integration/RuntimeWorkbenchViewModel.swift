@@ -1366,6 +1366,25 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         persistRuntimeConcurrencySettings()
     }
 
+    func clearQueuedStarts() {
+        queuedStartVMIDs.removeAll()
+        queuedStartRetryCounts.removeAll()
+        queuedStartNextAttemptAtByVMID.removeAll()
+        persistRuntimeConcurrencySettings()
+        vmRuntimeStatusMessage = "Cleared queued VM starts."
+    }
+
+    func resetQueuedStartRetries() {
+        let queuedIDs = Set(queuedStartVMIDs)
+        queuedStartRetryCounts = queuedStartRetryCounts.filter { queuedIDs.contains($0.key) }
+        for vmID in queuedStartVMIDs {
+            queuedStartRetryCounts[vmID] = 0
+            queuedStartNextAttemptAtByVMID[vmID] = nil
+        }
+        persistRuntimeConcurrencySettings()
+        vmRuntimeStatusMessage = "Reset retry cooldown for queued VM starts."
+    }
+
     func queuedStartEntries() -> [VMRegistryEntry] {
         queuedStartVMIDs.compactMap { queuedID in
             installedVMEntries.first(where: { $0.id == queuedID })

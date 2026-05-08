@@ -2965,6 +2965,95 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testClearQueuedStartsRemovesQueueAndRetryMetadata() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-clear-queue",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected vm id")
+            return
+        }
+        await provisioning.injectStartFailure(for: vmID)
+
+        viewModel.enqueueManagedVMStart(vmID)
+        await viewModel.runQueuedStartSchedulerTick()
+        XCTAssertEqual(viewModel.queuedStartVMIDs, [vmID])
+        XCTAssertEqual(viewModel.queuedStartRetryCounts[vmID], 1)
+
+        viewModel.clearQueuedStarts()
+        XCTAssertTrue(viewModel.queuedStartVMIDs.isEmpty)
+        XCTAssertTrue(viewModel.queuedStartRetryCounts.isEmpty)
+        XCTAssertTrue(viewModel.queuedStartNextAttemptAtByVMID.isEmpty)
+    }
+
+    @MainActor
+    func testResetQueuedStartRetriesClearsCooldownAndResetsCounts() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-reset-retries",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected vm id")
+            return
+        }
+        await provisioning.injectStartFailure(for: vmID)
+
+        viewModel.enqueueManagedVMStart(vmID)
+        await viewModel.runQueuedStartSchedulerTick()
+        XCTAssertEqual(viewModel.queuedStartRetryCounts[vmID], 1)
+        XCTAssertNotNil(viewModel.queuedStartNextAttemptAtByVMID[vmID])
+
+        viewModel.resetQueuedStartRetries()
+        XCTAssertEqual(viewModel.queuedStartRetryCounts[vmID], 0)
+        XCTAssertNil(viewModel.queuedStartNextAttemptAtByVMID[vmID])
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

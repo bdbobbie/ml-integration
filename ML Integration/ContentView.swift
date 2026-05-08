@@ -1947,6 +1947,21 @@ struct ContentView: View {
                                 )
                                 .font(.caption2)
                                 .foregroundColor(.orange)
+                                HStack(spacing: 8) {
+                                    Button("Reset Queue Retries") {
+                                        runtimeWorkbench.resetQueuedStartRetries()
+                                        presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+
+                                    Button("Clear Queue") {
+                                        runtimeWorkbench.clearQueuedStarts()
+                                        presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM)
+                                }
                             }
 
                             HStack(spacing: 8) {
