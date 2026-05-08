@@ -118,6 +118,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var maxConcurrentRunningVMs: Int = 1
     @Published private(set) var queuedStartVMIDs: [UUID] = []
     @Published private(set) var queuedStartOrder: QueueOrder = .fifo
+    @Published private(set) var queuedStartRetryCounts: [UUID: Int] = [:]
+    @Published private(set) var queuedStartNextAttemptAtByVMID: [UUID: Date] = [:]
     @Published private(set) var runtimeStateByVMID: [UUID: VMRuntimeState] = [:]
     @Published private(set) var fleetDiagnosticsByVMID: [UUID: FleetRuntimeDiagnostic] = [:]
     @Published private(set) var integrationCapabilitiesByVMID: [UUID: VMIntegrationCapabilities] = [:]
@@ -188,6 +190,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     private let integrationRemediationDeletionTimeoutOptions: [Int] = [10, 30, 60]
     private let launcherExecutionMaxAttempts = 2
     private let launcherRunHistoryLimitPerVM = 10
+    private let queuedStartMaxRetryAttempts = 3
+    private let queuedStartRetryDelaySeconds: TimeInterval = 1
 
     private struct IntegrationRemediationDeletionSafetyPreferences: Codable {
         let requireArming: Bool
@@ -1081,6 +1085,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         Task { await processQueuedStartsIfCapacityAvailable() }
     }
 
+    func runQueuedStartSchedulerTick() async {
+        await processQueuedStartsIfCapacityAvailable()
+    }
+
     private func runtimeConcurrencySettingsURL() -> URL {
         baseDirectory().appendingPathComponent("runtime-concurrency-settings.json", isDirectory: false)
     }
@@ -1325,6 +1333,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             return
         }
         queuedStartVMIDs.append(id)
+        queuedStartRetryCounts[id] = queuedStartRetryCounts[id] ?? 0
+        queuedStartNextAttemptAtByVMID[id] = nil
         let queuedNames = queuedStartVMIDs.compactMap { queuedID in
             installedVMEntries.first(where: { $0.id == queuedID })?.vmName
         }
@@ -1333,6 +1343,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
 
     func dequeueManagedVMStart(_ id: UUID) {
         queuedStartVMIDs.removeAll { $0 == id }
+        queuedStartRetryCounts[id] = nil
+        queuedStartNextAttemptAtByVMID[id] = nil
     }
 
     func queuedStartEntries() -> [VMRegistryEntry] {
@@ -1342,6 +1354,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     }
 
     private func processQueuedStartsIfCapacityAvailable() async {
+        var cooldownSkips = 0
         while !queuedStartVMIDs.isEmpty && activeRuntimeVMIDs.count < maxConcurrentRunningVMs {
             let nextVMID: UUID
             switch queuedStartOrder {
@@ -1350,14 +1363,53 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             case .lifo:
                 nextVMID = queuedStartVMIDs.removeLast()
             }
-            await startManagedVM(nextVMID)
-            if runtimeState(for: nextVMID) != .running {
-                // Requeue only when blocked again by concurrency pressure.
-                if vmRuntimeStatusMessage.contains("Concurrency limit reached") {
-                    queuedStartVMIDs.append(nextVMID)
+
+            if let nextAttemptAt = queuedStartNextAttemptAtByVMID[nextVMID], nextAttemptAt > Date() {
+                queuedStartVMIDs.append(nextVMID)
+                cooldownSkips += 1
+                if cooldownSkips >= queuedStartVMIDs.count {
+                    vmRuntimeStatusMessage = "Queued starts are waiting for retry cooldown."
+                    break
                 }
+                continue
+            }
+            cooldownSkips = 0
+
+            await startManagedVM(nextVMID)
+            if runtimeState(for: nextVMID) == .running {
+                queuedStartRetryCounts[nextVMID] = nil
+                queuedStartNextAttemptAtByVMID[nextVMID] = nil
+                continue
+            }
+
+            // Requeue only when blocked again by concurrency pressure.
+            if vmRuntimeStatusMessage.contains("Concurrency limit reached") {
+                queuedStartVMIDs.append(nextVMID)
                 break
             }
+
+            let nextAttempt = (queuedStartRetryCounts[nextVMID] ?? 0) + 1
+            if nextAttempt >= queuedStartMaxRetryAttempts {
+                queuedStartRetryCounts[nextVMID] = nil
+                queuedStartNextAttemptAtByVMID[nextVMID] = nil
+                if let vmName = installedVMEntries.first(where: { $0.id == nextVMID })?.vmName {
+                    vmRuntimeStatusMessage =
+                        "Dropped queued start for \(vmName) after \(queuedStartMaxRetryAttempts) failed attempts."
+                } else {
+                    vmRuntimeStatusMessage =
+                        "Dropped queued start after \(queuedStartMaxRetryAttempts) failed attempts."
+                }
+                continue
+            }
+
+            queuedStartRetryCounts[nextVMID] = nextAttempt
+            queuedStartNextAttemptAtByVMID[nextVMID] = Date().addingTimeInterval(queuedStartRetryDelaySeconds)
+            queuedStartVMIDs.append(nextVMID)
+            if let vmName = installedVMEntries.first(where: { $0.id == nextVMID })?.vmName {
+                vmRuntimeStatusMessage =
+                    "Queued start retry \(nextAttempt)/\(queuedStartMaxRetryAttempts - 1) scheduled for \(vmName)."
+            }
+            break
         }
     }
 
