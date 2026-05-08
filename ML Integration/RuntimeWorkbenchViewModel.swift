@@ -1405,6 +1405,23 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         recordQueueEvent("Reset queued start retry cooldowns.")
     }
 
+    func retryQueuedStartNow(_ id: UUID) {
+        guard queuedStartVMIDs.contains(id) else {
+            vmRuntimeStatusMessage = "VM is not currently queued."
+            return
+        }
+        queuedStartNextAttemptAtByVMID[id] = nil
+        queuedStartRetryCounts[id] = queuedStartRetryCounts[id] ?? 0
+        persistRuntimeConcurrencySettings()
+        if let vmName = installedVMEntries.first(where: { $0.id == id })?.vmName {
+            vmRuntimeStatusMessage = "Queued VM \(vmName) is ready for immediate retry."
+            recordQueueEvent("Manual retry-now set for \(vmName).")
+        } else {
+            vmRuntimeStatusMessage = "Queued VM is ready for immediate retry."
+            recordQueueEvent("Manual retry-now set for queued VM.")
+        }
+    }
+
     func queuedStartEntries() -> [VMRegistryEntry] {
         queuedStartVMIDs.compactMap { queuedID in
             installedVMEntries.first(where: { $0.id == queuedID })

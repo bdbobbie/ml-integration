@@ -2441,6 +2441,13 @@ struct ContentView: View {
                                         .disabled(isCreatingVM)
                                     }
                                     if runtimeWorkbench.queuedStartVMIDs.contains(entry.id) {
+                                        Button("Retry Now") {
+                                            runtimeWorkbench.retryQueuedStartNow(entry.id)
+                                            presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                        }
+                                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                        .disabled(isCreatingVM)
+
                                         Button("Move Up") {
                                             runtimeWorkbench.moveQueuedStartEarlier(entry.id)
                                             presentInfo("Moved \(entry.vmName) earlier in the queue.")
