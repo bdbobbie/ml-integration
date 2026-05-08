@@ -820,6 +820,7 @@ struct ContentView: View {
                 Text("Linux App Onboarding (Step 3)")
                     .font(.headline)
                     .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("onboarding-step3-header")
 
                 Text("Guided path for install, run, and launcher validation.")
                     .font(.caption)
@@ -844,6 +845,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                     .disabled(isOnboardingActionInProgress)
+                    .accessibilityIdentifier("onboarding-run-actions-button")
 
                     Button("Mark Onboarding Complete") {
                         _ = blueprintPlanner.completeDeliveryAction(id: "linux-app-onboarding")
@@ -860,6 +862,7 @@ struct ContentView: View {
 
                 if isOnboardingActionInProgress {
                     ProgressView()
+                        .accessibilityIdentifier("onboarding-actions-progress")
                 }
 
                 if !onboardingActionStatusLines.isEmpty {
@@ -870,6 +873,7 @@ struct ContentView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+                    .accessibilityIdentifier("onboarding-status-lines")
                 }
             }
             .modifier(GlassCardStyle(borderColor: sectionBorderColor))

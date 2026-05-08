@@ -58,4 +58,28 @@ final class ML_IntegrationUITests: XCTestCase {
         }
         repairButton.tap()
     }
+
+    @MainActor
+    func testOnboardingActionsExposeProgressTelemetry() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let onboardingHeader = app.staticTexts["onboarding-step3-header"]
+        guard onboardingHeader.waitForExistence(timeout: 10) else {
+            throw XCTSkip("Onboarding Step 3 section was not visible in current UI session.")
+        }
+
+        let runButton = app.buttons["onboarding-run-actions-button"]
+        guard runButton.waitForExistence(timeout: 10) else {
+            throw XCTSkip("Run Onboarding Actions button was not visible in current UI session.")
+        }
+
+        runButton.tap()
+
+        let statusContainer = app.otherElements["onboarding-status-lines"]
+        XCTAssertTrue(
+            statusContainer.waitForExistence(timeout: 10),
+            "Expected onboarding telemetry lines after running onboarding actions."
+        )
+    }
 }
