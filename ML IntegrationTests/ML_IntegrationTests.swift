@@ -3462,6 +3462,116 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testStep4EndToEndQueueOrchestrationFlow() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+        viewModel.updateQueuedStartOrder(.fifo)
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-e2e-a",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmA = viewModel.activeVMID else {
+            XCTFail("Expected vmA id")
+            return
+        }
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-e2e-b",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmB = viewModel.activeVMID else {
+            XCTFail("Expected vmB id")
+            return
+        }
+        await viewModel.scaffoldInstall(
+            distribution: .debian,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-e2e-c",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmC = viewModel.activeVMID else {
+            XCTFail("Expected vmC id")
+            return
+        }
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-e2e-d",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmD = viewModel.activeVMID else {
+            XCTFail("Expected vmD id")
+            return
+        }
+
+        await viewModel.startManagedVM(vmA)
+        XCTAssertEqual(viewModel.runtimeState(for: vmA), .running)
+
+        viewModel.enqueueManagedVMStart(vmB)
+        viewModel.enqueueManagedVMStart(vmC)
+        XCTAssertEqual(viewModel.queuedStartVMIDs, [vmB, vmC])
+
+        viewModel.moveQueuedStartLater(vmB)
+        XCTAssertEqual(viewModel.queuedStartVMIDs, [vmC, vmB])
+
+        _ = await viewModel.stopManagedVM(vmA)
+        XCTAssertEqual(viewModel.runtimeState(for: vmC), .running)
+        XCTAssertEqual(viewModel.queuedStartVMIDs, [vmB])
+
+        // Force a failure path for queued retry handling.
+        await provisioning.injectStartFailure(for: vmD)
+        viewModel.enqueueManagedVMStart(vmD)
+        XCTAssertTrue(viewModel.queuedStartVMIDs.contains(vmD))
+
+        viewModel.updateMaxConcurrentRunningVMs(2)
+        await viewModel.runQueuedStartSchedulerTick()
+
+        XCTAssertEqual(viewModel.runtimeState(for: vmB), .running)
+        XCTAssertEqual(viewModel.runtimeState(for: vmD), .failed)
+        XCTAssertTrue(viewModel.queuedStartVMIDs.contains(vmD))
+        XCTAssertEqual(viewModel.queuedStartRetryCounts[vmD], 1)
+        XCTAssertNotNil(viewModel.queuedStartNextAttemptAtByVMID[vmD])
+
+        viewModel.retryQueuedStartNow(vmD)
+        XCTAssertNil(viewModel.queuedStartNextAttemptAtByVMID[vmD])
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("ready for immediate retry"))
+
+        let queueStateJSON = viewModel.queueStateJSON()
+        XCTAssertTrue(queueStateJSON.contains("vm-e2e-d"))
+        XCTAssertTrue(viewModel.queueEventsJSON(limit: 20).contains("Manual retry-now"))
+    }
+
+    @MainActor
     func testQueueNextAttemptSummaryReportsNoneWhenQueueEmpty() {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),
