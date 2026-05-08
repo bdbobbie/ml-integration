@@ -3,6 +3,12 @@ import Combine
 
 @MainActor
 final class BlueprintPlanner: ObservableObject {
+    struct Step5Readiness: Equatable {
+        let isReady: Bool
+        let blockers: [String]
+        let summary: String
+    }
+
     @Published private(set) var supportedArchitectures: [HostArchitecture] = HostArchitecture.allCases
     @Published private(set) var preferredRuntimeByArchitecture: [HostArchitecture: RuntimeEngine] = [
         .appleSilicon: .appleVirtualization,
@@ -446,6 +452,37 @@ final class BlueprintPlanner: ObservableObject {
             to: (automationPassing && phaseSweepReady && step4QueueReady)
                 ? .complete
                 : (plannerReady ? .inProgress : .pending)
+        )
+    }
+
+    func step5Readiness(
+        plannerReady: Bool,
+        phaseSweepReady: Bool,
+        step4QueueReady: Bool,
+        automationPassing: Bool
+    ) -> Step5Readiness {
+        var blockers: [String] = []
+        if !plannerReady {
+            blockers.append("Planner readiness criteria are not fully satisfied.")
+        }
+        if !phaseSweepReady {
+            blockers.append("Runtime phase sweep gate is not ready.")
+        }
+        if !step4QueueReady {
+            blockers.append("Step 4 queue readiness gate is not ready.")
+        }
+        if !automationPassing {
+            blockers.append("Automation passing signal is not satisfied.")
+        }
+
+        let ready = blockers.isEmpty
+        let summary = ready
+            ? "Step 5 readiness: READY."
+            : "Step 5 readiness: BLOCKED (\(blockers.count) issue(s))."
+        return Step5Readiness(
+            isReady: ready,
+            blockers: blockers,
+            summary: summary
         )
     }
 

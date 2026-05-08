@@ -364,6 +364,36 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testStep5ReadinessReturnsReadyWhenAllSignalsSatisfied() {
+        let planner = BlueprintPlanner()
+        let readiness = planner.step5Readiness(
+            plannerReady: true,
+            phaseSweepReady: true,
+            step4QueueReady: true,
+            automationPassing: true
+        )
+
+        XCTAssertTrue(readiness.isReady)
+        XCTAssertTrue(readiness.blockers.isEmpty)
+        XCTAssertEqual(readiness.summary, "Step 5 readiness: READY.")
+    }
+
+    @MainActor
+    func testStep5ReadinessReportsBlockersWhenSignalsMissing() {
+        let planner = BlueprintPlanner()
+        let readiness = planner.step5Readiness(
+            plannerReady: false,
+            phaseSweepReady: false,
+            step4QueueReady: false,
+            automationPassing: false
+        )
+
+        XCTAssertFalse(readiness.isReady)
+        XCTAssertEqual(readiness.blockers.count, 4)
+        XCTAssertTrue(readiness.summary.contains("BLOCKED"))
+    }
+
+    @MainActor
     func testCompleteDeliveryActionMarksItemCompleteAndUpdatesProgress() {
         let planner = BlueprintPlanner()
         XCTAssertEqual(planner.deliveryActionProgressSummary, "0/9 delivery actions complete")

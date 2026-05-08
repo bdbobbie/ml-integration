@@ -757,6 +757,19 @@ struct ContentView: View {
         )
     }
 
+    private var automationPassingSignal: Bool {
+        blueprintPlanner.readinessCriteria.first(where: { $0.id == "automation-passing" })?.isSatisfied ?? false
+    }
+
+    private var step5Readiness: BlueprintPlanner.Step5Readiness {
+        blueprintPlanner.step5Readiness(
+            plannerReady: blueprintPlanner.isReadyForEnvironmentTesting,
+            phaseSweepReady: runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting(),
+            step4QueueReady: runtimeWorkbench.step4QueueReadiness().isReady,
+            automationPassing: automationPassingSignal
+        )
+    }
+
     private struct OnboardingChecklistItem: Identifiable {
         let id: String
         let title: String
@@ -1016,6 +1029,17 @@ struct ContentView: View {
             Text(blueprintPlanner.deliveryActionProgressSummary)
                 .font(.caption)
                 .foregroundColor(.secondary)
+
+            Text(step5Readiness.summary)
+                .font(.caption2)
+                .foregroundColor(step5Readiness.isReady ? .green : .orange)
+            if !step5Readiness.blockers.isEmpty {
+                ForEach(Array(step5Readiness.blockers.prefix(3).enumerated()), id: \.offset) { _, blocker in
+                    Text("• \(blocker)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
 
             Button("Reset All Delivery Actions") {
                 blueprintPlanner.resetAllDeliveryActionsToPending()
