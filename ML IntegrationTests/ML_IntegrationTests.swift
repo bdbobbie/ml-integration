@@ -394,6 +394,111 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testStep5DeliveryActionProgressionAcrossSignalTransitions() {
+        let planner = BlueprintPlanner()
+
+        // Initial blocked state.
+        var readiness = planner.step5Readiness(
+            plannerReady: false,
+            phaseSweepReady: false,
+            step4QueueReady: false,
+            automationPassing: false
+        )
+        XCTAssertFalse(readiness.isReady)
+
+        planner.syncDeliveryActionItems(
+            plannerReady: false,
+            phaseSweepReady: false,
+            phase2DisplayReady: false,
+            step4QueueReady: false,
+            automationPassing: false
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "ci-stability" })?.status,
+            .pending
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "e2e-runtime-tests" })?.status,
+            .pending
+        )
+
+        // Planner becomes ready but automation and runtime gates are still pending.
+        readiness = planner.step5Readiness(
+            plannerReady: true,
+            phaseSweepReady: false,
+            step4QueueReady: false,
+            automationPassing: false
+        )
+        XCTAssertFalse(readiness.isReady)
+
+        planner.syncDeliveryActionItems(
+            plannerReady: true,
+            phaseSweepReady: false,
+            phase2DisplayReady: false,
+            step4QueueReady: false,
+            automationPassing: false
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "ci-stability" })?.status,
+            .inProgress
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "e2e-runtime-tests" })?.status,
+            .inProgress
+        )
+
+        // Automation passes; CI should complete but E2E still waits on runtime gates.
+        readiness = planner.step5Readiness(
+            plannerReady: true,
+            phaseSweepReady: false,
+            step4QueueReady: false,
+            automationPassing: true
+        )
+        XCTAssertFalse(readiness.isReady)
+
+        planner.syncDeliveryActionItems(
+            plannerReady: true,
+            phaseSweepReady: false,
+            phase2DisplayReady: false,
+            step4QueueReady: false,
+            automationPassing: true
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "ci-stability" })?.status,
+            .complete
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "e2e-runtime-tests" })?.status,
+            .inProgress
+        )
+
+        // Final state: all gates pass, E2E completes.
+        readiness = planner.step5Readiness(
+            plannerReady: true,
+            phaseSweepReady: true,
+            step4QueueReady: true,
+            automationPassing: true
+        )
+        XCTAssertTrue(readiness.isReady)
+
+        planner.syncDeliveryActionItems(
+            plannerReady: true,
+            phaseSweepReady: true,
+            phase2DisplayReady: true,
+            step4QueueReady: true,
+            automationPassing: true
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "ci-stability" })?.status,
+            .complete
+        )
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "e2e-runtime-tests" })?.status,
+            .complete
+        )
+    }
+
+    @MainActor
     func testCompleteDeliveryActionMarksItemCompleteAndUpdatesProgress() {
         let planner = BlueprintPlanner()
         XCTAssertEqual(planner.deliveryActionProgressSummary, "0/9 delivery actions complete")
