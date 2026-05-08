@@ -134,6 +134,14 @@ struct ContentView: View {
             processInfo.arguments.contains(RuntimeEnvironment.uiEnableRepairActionArgument)
     }
 
+    private var uiOnboardingDryRunEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-onboarding-dry-run")
+    }
+
+    private var uiFocusOnboardingEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-focus-onboarding")
+    }
+
     private var preferredColorSchemeOverride: ColorScheme? {
         switch appearanceMode {
         case .system: return nil
@@ -223,6 +231,9 @@ struct ContentView: View {
                 // Main Content
                 if uiForceSchemaInvalid || uiForceRepairActionEnabled {
                     uiTestSchemaWarningBanner
+                }
+                if uiFocusOnboardingEnabled {
+                    uiOnboardingFocusHarness
                 }
 
                 ScrollView {
@@ -880,6 +891,43 @@ struct ContentView: View {
         }
     }
 
+    private var uiOnboardingFocusHarness: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("onboarding-focus-ready")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .accessibilityIdentifier("onboarding-focus-ready")
+            Text("Linux App Onboarding (Step 3)")
+                .font(.caption)
+                .accessibilityIdentifier("onboarding-step3-header")
+            Button("Run Onboarding Actions") {
+                Task {
+                    await runOnboardingActions()
+                }
+            }
+            .buttonStyle(RedTextWhiteOutlineButtonStyle())
+            .disabled(isOnboardingActionInProgress)
+            .accessibilityIdentifier("onboarding-run-actions-button")
+            if !onboardingActionStatusLines.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(onboardingActionStatusLines.first ?? "")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .accessibilityIdentifier("onboarding-status-first-line")
+                    ForEach(Array(onboardingActionStatusLines.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("onboarding-status-lines")
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+        .accessibilityIdentifier("onboarding-focus-harness")
+    }
+
     @MainActor
     private func runOnboardingActions() async {
         guard !isOnboardingActionInProgress else { return }
@@ -891,6 +939,15 @@ struct ContentView: View {
         }
 
         appendOnboardingStatus("Started onboarding action run.")
+
+        if uiOnboardingDryRunEnabled {
+            appendOnboardingStatus("Dry run: install step skipped.")
+            appendOnboardingStatus("Dry run: VM runtime step skipped.")
+            appendOnboardingStatus("Dry run: coherence step skipped.")
+            appendOnboardingStatus("Dry run: launcher step skipped.")
+            appendOnboardingStatus("Onboarding action run finished.")
+            return
+        }
 
         if onboardingScaffoldReady == false && onboardingHasInstaller {
             appendOnboardingStatus("Installing VM scaffold from selected installer...")

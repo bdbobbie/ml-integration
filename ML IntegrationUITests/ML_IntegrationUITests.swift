@@ -62,21 +62,21 @@ final class ML_IntegrationUITests: XCTestCase {
     @MainActor
     func testOnboardingActionsExposeProgressTelemetry() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-ui-onboarding-dry-run")
+        app.launchArguments.append("-ui-focus-onboarding")
         app.launch()
 
-        let onboardingHeader = app.staticTexts["onboarding-step3-header"]
-        guard onboardingHeader.waitForExistence(timeout: 10) else {
-            throw XCTSkip("Onboarding Step 3 section was not visible in current UI session.")
-        }
+        let harnessReady = app.staticTexts["onboarding-focus-ready"]
+        XCTAssertTrue(harnessReady.waitForExistence(timeout: 10), "Onboarding focus harness did not load in UI test mode.")
 
-        let runButton = app.buttons["onboarding-run-actions-button"]
-        guard runButton.waitForExistence(timeout: 10) else {
-            throw XCTSkip("Run Onboarding Actions button was not visible in current UI session.")
-        }
+        let identifiedRunButton = app.buttons["onboarding-run-actions-button"]
+        let titledRunButton = app.buttons["Run Onboarding Actions"]
+        let runButton = identifiedRunButton.exists ? identifiedRunButton : titledRunButton
+        XCTAssertTrue(runButton.waitForExistence(timeout: 5), "Run Onboarding Actions button was not visible in current UI session.")
 
         runButton.tap()
 
-        let statusContainer = app.otherElements["onboarding-status-lines"]
+        let statusContainer = app.staticTexts["onboarding-status-first-line"]
         XCTAssertTrue(
             statusContainer.waitForExistence(timeout: 10),
             "Expected onboarding telemetry lines after running onboarding actions."
