@@ -40,6 +40,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         let lastErrorMessage: String?
     }
 
+    struct Step4QueueReadiness: Equatable {
+        let isReady: Bool
+        let blockers: [String]
+        let summary: String
+    }
+
     struct QueueEvent: Equatable, Identifiable {
         let id: UUID
         let timestamp: Date
@@ -1706,6 +1712,36 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         }
         let seconds = max(1, Int(ceil(soonestRetry.timeIntervalSince(now))))
         return "Queue retry countdown: ~\(seconds)s."
+    }
+
+    func step4QueueReadiness() -> Step4QueueReadiness {
+        var blockers: [String] = []
+        if maxConcurrentRunningVMs < 1 {
+            blockers.append("Concurrency limit must be at least 1.")
+        }
+        let installedIDs = Set(installedVMEntries.map(\.id))
+        let queuedIDs = Set(queuedStartVMIDs)
+        let staleQueuedCount = queuedStartVMIDs.filter { !installedIDs.contains($0) }.count
+        if staleQueuedCount > 0 {
+            blockers.append("Queue contains \(staleQueuedCount) stale VM reference(s).")
+        }
+        let retryOrphans = queuedStartRetryCounts.keys.filter { !queuedIDs.contains($0) }.count
+        if retryOrphans > 0 {
+            blockers.append("Retry metadata has \(retryOrphans) orphan item(s).")
+        }
+        let cooldownOrphans = queuedStartNextAttemptAtByVMID.keys.filter { !queuedIDs.contains($0) }.count
+        if cooldownOrphans > 0 {
+            blockers.append("Cooldown metadata has \(cooldownOrphans) orphan item(s).")
+        }
+        let ready = blockers.isEmpty
+        let summary = ready
+            ? "Step 4 queue readiness: READY."
+            : "Step 4 queue readiness: BLOCKED (\(blockers.count) issue(s))."
+        return Step4QueueReadiness(
+            isReady: ready,
+            blockers: blockers,
+            summary: summary
+        )
     }
 
     func fleetEntries(filteredBy filter: FleetStateFilter) -> [VMRegistryEntry] {

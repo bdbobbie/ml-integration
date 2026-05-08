@@ -306,7 +306,8 @@ final class ML_IntegrationTests: XCTestCase {
         planner.syncDeliveryActionItems(
             plannerReady: true,
             phaseSweepReady: true,
-            phase2DisplayReady: true
+            phase2DisplayReady: true,
+            step4QueueReady: false
         )
 
         XCTAssertEqual(
@@ -320,6 +321,22 @@ final class ML_IntegrationTests: XCTestCase {
         XCTAssertEqual(
             planner.deliveryActionItems.first(where: { $0.id == "device-passthrough" })?.status,
             .inProgress
+        )
+    }
+
+    @MainActor
+    func testDeliveryActionItemsMarksMultiVMConcurrencyCompleteWhenStep4Ready() {
+        let planner = BlueprintPlanner()
+        planner.syncDeliveryActionItems(
+            plannerReady: true,
+            phaseSweepReady: true,
+            phase2DisplayReady: true,
+            step4QueueReady: true
+        )
+
+        XCTAssertEqual(
+            planner.deliveryActionItems.first(where: { $0.id == "multi-vm-concurrency" })?.status,
+            .complete
         )
     }
 
@@ -3360,6 +3377,88 @@ final class ML_IntegrationTests: XCTestCase {
             viewModel.queueSchedulerStatusSummary(),
             "Queue scheduler: waiting for runtime capacity."
         )
+    }
+
+    @MainActor
+    func testStep4QueueReadinessReturnsReadyForCleanQueueState() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-step4-ready",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected vm id")
+            return
+        }
+        viewModel.enqueueManagedVMStart(vmID)
+        let readiness = viewModel.step4QueueReadiness()
+
+        XCTAssertTrue(readiness.isReady)
+        XCTAssertTrue(readiness.blockers.isEmpty)
+        XCTAssertTrue(readiness.summary.contains("READY"))
+    }
+
+    @MainActor
+    func testStep4QueueReadinessReportsBlockedForStaleQueuedID() throws {
+        let envKey = RuntimeEnvironment.testRootEnvironmentVariable
+        let previous = getenv(envKey).map { String(cString: $0) }
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ml-integration-step4-readiness-stale-\(UUID().uuidString)", isDirectory: true)
+
+        setenv(envKey, testRoot.path, 1)
+        defer {
+            if let previous {
+                setenv(envKey, previous, 1)
+            } else {
+                unsetenv(envKey)
+            }
+            try? FileManager.default.removeItem(at: testRoot)
+        }
+
+        try FileManager.default.createDirectory(at: testRoot, withIntermediateDirectories: true)
+        let staleID = UUID()
+        let settingsURL = testRoot.appendingPathComponent("runtime-concurrency-settings.json")
+        let payload: [String: Any] = [
+            "maxConcurrentRunningVMs": 1,
+            "queuedStartOrderRawValue": "FIFO",
+            "queuedStartVMIDStrings": [staleID.uuidString]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+        try data.write(to: settingsURL, options: .atomic)
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+        let readiness = viewModel.step4QueueReadiness()
+        XCTAssertFalse(readiness.isReady)
+        XCTAssertTrue(readiness.summary.contains("BLOCKED"))
+        XCTAssertTrue(readiness.blockers.contains { $0.contains("stale VM reference") })
     }
 
     @MainActor

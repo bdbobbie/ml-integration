@@ -738,7 +738,8 @@ struct ContentView: View {
         blueprintPlanner.syncDeliveryActionItems(
             plannerReady: blueprintPlanner.isReadyForEnvironmentTesting,
             phaseSweepReady: runtimeWorkbench.isPhaseSweepReadyForEnvironmentTesting(),
-            phase2DisplayReady: readiness.displayV2Ready
+            phase2DisplayReady: readiness.displayV2Ready,
+            step4QueueReady: runtimeWorkbench.step4QueueReadiness().isReady
         )
         syncLinuxAppOnboardingDeliveryAction()
     }

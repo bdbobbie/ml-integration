@@ -405,7 +405,8 @@ final class BlueprintPlanner: ObservableObject {
     func syncDeliveryActionItems(
         plannerReady: Bool,
         phaseSweepReady: Bool,
-        phase2DisplayReady: Bool
+        phase2DisplayReady: Bool,
+        step4QueueReady: Bool
     ) {
         setDeliveryActionStatus(
             id: "linux-window-coherence",
@@ -421,7 +422,7 @@ final class BlueprintPlanner: ObservableObject {
         )
         setDeliveryActionStatus(
             id: "multi-vm-concurrency",
-            to: plannerReady ? .inProgress : .pending
+            to: step4QueueReady ? .complete : (plannerReady ? .inProgress : .pending)
         )
         setDeliveryActionStatus(
             id: "multi-display-runtime",
