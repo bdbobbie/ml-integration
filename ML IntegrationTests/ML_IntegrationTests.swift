@@ -2071,7 +2071,64 @@ final class ML_IntegrationTests: XCTestCase {
 
         await second.startActiveVM()
         XCTAssertEqual(second.vmRuntimeState, .failed)
-        XCTAssertTrue(second.vmRuntimeStatusMessage.contains("Only one VM can run at a time"))
+        XCTAssertTrue(
+            second.vmRuntimeStatusMessage.contains("Only one VM can run at a time")
+                || second.vmRuntimeStatusMessage.contains("Concurrency limit reached (1)")
+        )
+    }
+
+    @MainActor
+    func testCanRunTwoVMsWhenConcurrencyLimitAndProvisioningAllowIt() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 2
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-one-step4",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmOne = viewModel.activeVMID else {
+            XCTFail("Expected first VM id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-two-step4",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmTwo = viewModel.activeVMID else {
+            XCTFail("Expected second VM id")
+            return
+        }
+
+        await viewModel.startManagedVM(vmOne)
+        XCTAssertEqual(viewModel.runtimeState(for: vmOne), .running)
+        await viewModel.startManagedVM(vmTwo)
+        XCTAssertEqual(viewModel.runtimeState(for: vmTwo), .running)
+        XCTAssertEqual(Set(viewModel.activeRuntimeVMIDs), Set([vmOne, vmTwo]))
     }
 
     @MainActor
@@ -5891,6 +5948,7 @@ actor MockProvisioningService: VMProvisioningService {
     private var statesByID: [UUID: VMRuntimeState] = [:]
     private var startFailureVMIDs: Set<UUID> = []
     private var stopFailureVMIDs: Set<UUID> = []
+    private var allowConcurrentStarts: Bool = false
 
     func validate(_ request: VMInstallRequest, assets: VMInstallAssets?) async throws {
         if request.runtimeEngine == .appleVirtualization || request.runtimeEngine == .qemuFallback {
@@ -5949,7 +6007,7 @@ actor MockProvisioningService: VMProvisioningService {
         if startFailureVMIDs.contains(id) {
             throw RuntimeServiceError.invalidVMRequest("Injected start failure for testing.")
         }
-        if statesByID.contains(where: { $0.key != id && $0.value == .running }) {
+        if !allowConcurrentStarts && statesByID.contains(where: { $0.key != id && $0.value == .running }) {
             throw RuntimeServiceError.invalidVMRequest(
                 "Only one VM can run at a time in this release."
             )
@@ -5973,5 +6031,9 @@ actor MockProvisioningService: VMProvisioningService {
 
     func injectStartFailure(for id: UUID) {
         startFailureVMIDs.insert(id)
+    }
+
+    func setAllowConcurrentStarts(_ allowed: Bool) {
+        allowConcurrentStarts = allowed
     }
 }

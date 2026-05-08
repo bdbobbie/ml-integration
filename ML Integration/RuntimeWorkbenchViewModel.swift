@@ -108,6 +108,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var lastManagedVMID: UUID?
     @Published private(set) var installedVMEntries: [VMRegistryEntry] = []
     @Published private(set) var activeRuntimeVMIDs: [UUID] = []
+    @Published private(set) var maxConcurrentRunningVMs: Int = 1
     @Published private(set) var runtimeStateByVMID: [UUID: VMRuntimeState] = [:]
     @Published private(set) var fleetDiagnosticsByVMID: [UUID: FleetRuntimeDiagnostic] = [:]
     @Published private(set) var integrationCapabilitiesByVMID: [UUID: VMIntegrationCapabilities] = [:]
@@ -197,7 +198,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         observability: RuntimeObservabilityLogging? = nil,
         launcherExecutor: LauncherScriptExecuting? = nil,
         deletionArmDurationSeconds: Int = 30,
-        integrationRemediationRequireArming: Bool = true
+        integrationRemediationRequireArming: Bool = true,
+        maxConcurrentRunningVMs: Int = 1
     ) {
         self.hostService = hostService ?? DefaultHostProfileService()
         self.catalogService = catalogService ?? OfficialDistributionCatalogService()
@@ -216,6 +218,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         self.deletionArmDurationSeconds = max(1, deletionArmDurationSeconds)
         self.integrationRemediationRequireArming = integrationRemediationRequireArming
         self.integrationRemediationDeletionTimeoutSeconds = max(1, deletionArmDurationSeconds)
+        self.maxConcurrentRunningVMs = max(1, maxConcurrentRunningVMs)
         loadIntegrationRemediationDeletionSafetyPreferences()
 
         traceVM("Build marker: VM-LAUNCH-DIAG-2026-04-23T00:00Z")
@@ -985,6 +988,28 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         activeVMID = vmID
         traceVM("startActiveVM requested vmID=\(vmID.uuidString)")
 
+        let currentlyRunningSet = Set(activeRuntimeVMIDs)
+        let isAlreadyRunning = currentlyRunningSet.contains(vmID)
+        if !isAlreadyRunning && currentlyRunningSet.count >= maxConcurrentRunningVMs {
+            vmRuntimeState = .failed
+            runtimeStateByVMID[vmID] = .failed
+            let runningNames = installedVMEntries
+                .filter { currentlyRunningSet.contains($0.id) }
+                .map(\.vmName)
+                .sorted()
+                .joined(separator: ", ")
+            let detail = runningNames.isEmpty ? "" : " Active: \(runningNames)."
+            vmRuntimeStatusMessage =
+                "Concurrency limit reached (\(maxConcurrentRunningVMs)). Stop a running VM before starting another.\(detail)"
+            fleetDiagnosticsByVMID[vmID] = FleetRuntimeDiagnostic(
+                lastAction: "start",
+                lastActionAt: Date(),
+                lastErrorMessage: vmRuntimeStatusMessage
+            )
+            await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: vmRuntimeStatusMessage)
+            return
+        }
+
         vmRuntimeState = .starting
         runtimeStateByVMID[vmID] = .starting
         vmRuntimeStatusMessage = "Starting VM \(vmID.uuidString)..."
@@ -1027,6 +1052,10 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             vmRuntimeStatusMessage = "Start VM failed: \(error.localizedDescription)"
             await logRunEvent(stage: .vmRuntimeControl, result: .failed, vmID: vmID, message: error.localizedDescription)
         }
+    }
+
+    func updateMaxConcurrentRunningVMs(_ newLimit: Int) {
+        maxConcurrentRunningVMs = max(1, newLimit)
     }
 
     func stopActiveVM() async -> Bool {
