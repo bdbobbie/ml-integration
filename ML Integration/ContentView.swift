@@ -742,6 +742,12 @@ struct ContentView: View {
             step4QueueReady: runtimeWorkbench.step4QueueReadiness().isReady,
             automationPassing: blueprintPlanner.readinessCriteria.first(where: { $0.id == "automation-passing" })?.isSatisfied ?? false
         )
+        blueprintPlanner.syncStep6Tasks(
+            uiRunnerStable: ProcessInfo.processInfo.arguments.contains("-ui-runner-stable"),
+            queueUISmokePassed: ProcessInfo.processInfo.arguments.contains("-ui-queue-smoke-passed"),
+            step5UISmokePassed: ProcessInfo.processInfo.arguments.contains("-ui-step5-smoke-passed"),
+            handoffSignedOff: ProcessInfo.processInfo.arguments.contains("-release-handoff-signed-off")
+        )
         syncLinuxAppOnboardingDeliveryAction()
     }
 
@@ -1035,6 +1041,21 @@ struct ContentView: View {
                 .foregroundColor(step5Readiness.isReady ? .green : .orange)
             if !step5Readiness.blockers.isEmpty {
                 ForEach(Array(step5Readiness.blockers.prefix(3).enumerated()), id: \.offset) { _, blocker in
+                    Text("• \(blocker)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            let step6Readiness = blueprintPlanner.step6Readiness()
+            Text(blueprintPlanner.step6ProgressSummary())
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            Text(step6Readiness.summary)
+                .font(.caption2)
+                .foregroundColor(step6Readiness.isReady ? .green : .orange)
+            if !step6Readiness.blockers.isEmpty {
+                ForEach(Array(step6Readiness.blockers.prefix(3).enumerated()), id: \.offset) { _, blocker in
                     Text("• \(blocker)")
                         .font(.caption2)
                         .foregroundColor(.secondary)

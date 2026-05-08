@@ -9,6 +9,27 @@ final class BlueprintPlanner: ObservableObject {
         let summary: String
     }
 
+    enum Step6TaskStatus: String, CaseIterable, Identifiable {
+        case pending = "Pending"
+        case inProgress = "In Progress"
+        case complete = "Complete"
+
+        var id: String { rawValue }
+    }
+
+    struct Step6Task: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let detail: String
+        var status: Step6TaskStatus
+    }
+
+    struct Step6Readiness: Equatable {
+        let isReady: Bool
+        let blockers: [String]
+        let summary: String
+    }
+
     @Published private(set) var supportedArchitectures: [HostArchitecture] = HostArchitecture.allCases
     @Published private(set) var preferredRuntimeByArchitecture: [HostArchitecture: RuntimeEngine] = [
         .appleSilicon: .appleVirtualization,
@@ -30,6 +51,7 @@ final class BlueprintPlanner: ObservableObject {
     @Published private(set) var phaseStateExportStatusMessage: String = ""
     @Published private(set) var lastPhaseStateReportPath: String = ""
     @Published private(set) var environmentTestingStarted: Bool = false
+    @Published private(set) var step6Tasks: [Step6Task] = []
 
     init() {
         stages = [
@@ -201,6 +223,33 @@ final class BlueprintPlanner: ObservableObject {
                 id: "e2e-runtime-tests",
                 title: "End-to-end runtime test expansion",
                 acceptanceCriteria: "Integration and UI test suites cover real runtime behaviors beyond gate/readiness state checks.",
+                status: .pending
+            )
+        ]
+
+        step6Tasks = [
+            Step6Task(
+                id: "ui-runner-stability",
+                title: "Stabilize UI runner",
+                detail: "Resolve xcodebuild/simulator permission and launch flakiness.",
+                status: .pending
+            ),
+            Step6Task(
+                id: "queue-ui-smoke",
+                title: "Queue UI smoke flow",
+                detail: "Validate Queue Start + Queue Tick + queue state transition assertions in focused XCUI coverage.",
+                status: .pending
+            ),
+            Step6Task(
+                id: "step5-ui-smoke",
+                title: "Step 5 readiness UI smoke",
+                detail: "Validate Step 5 readiness summary and blockers render correctly.",
+                status: .pending
+            ),
+            Step6Task(
+                id: "release-handoff-signoff",
+                title: "Release handoff sign-off",
+                detail: "Confirm docs, known deferments, and escalation/export workflows are signed off.",
                 status: .pending
             )
         ]
@@ -486,6 +535,50 @@ final class BlueprintPlanner: ObservableObject {
         )
     }
 
+    func syncStep6Tasks(
+        uiRunnerStable: Bool,
+        queueUISmokePassed: Bool,
+        step5UISmokePassed: Bool,
+        handoffSignedOff: Bool
+    ) {
+        setStep6TaskStatus(
+            id: "ui-runner-stability",
+            to: uiRunnerStable ? .complete : .inProgress
+        )
+        setStep6TaskStatus(
+            id: "queue-ui-smoke",
+            to: !uiRunnerStable ? .pending : (queueUISmokePassed ? .complete : .inProgress)
+        )
+        setStep6TaskStatus(
+            id: "step5-ui-smoke",
+            to: !uiRunnerStable ? .pending : (step5UISmokePassed ? .complete : .inProgress)
+        )
+        setStep6TaskStatus(
+            id: "release-handoff-signoff",
+            to: handoffSignedOff ? .complete : .inProgress
+        )
+    }
+
+    func step6ProgressSummary() -> String {
+        let completed = step6Tasks.filter { $0.status == .complete }.count
+        return "\(completed)/\(step6Tasks.count) Step 6 tasks complete"
+    }
+
+    func step6Readiness() -> Step6Readiness {
+        let blockers = step6Tasks
+            .filter { $0.status != .complete }
+            .map { "\($0.title) not complete." }
+        let ready = blockers.isEmpty
+        let summary = ready
+            ? "Step 6 readiness: READY."
+            : "Step 6 readiness: BLOCKED (\(blockers.count) issue(s))."
+        return Step6Readiness(
+            isReady: ready,
+            blockers: blockers,
+            summary: summary
+        )
+    }
+
     func setDeliveryActionStatus(id: String, to status: DeliveryActionStatus) {
         guard let index = deliveryActionItems.firstIndex(where: { $0.id == id }) else {
             return
@@ -515,6 +608,11 @@ final class BlueprintPlanner: ObservableObject {
         for index in deliveryActionItems.indices {
             deliveryActionItems[index].status = .pending
         }
+    }
+
+    private func setStep6TaskStatus(id: String, to status: Step6TaskStatus) {
+        guard let index = step6Tasks.firstIndex(where: { $0.id == id }) else { return }
+        step6Tasks[index].status = status
     }
 
     @discardableResult

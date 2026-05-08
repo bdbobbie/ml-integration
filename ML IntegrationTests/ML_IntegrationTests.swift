@@ -499,6 +499,40 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testStep6TasksProgressFromPendingToCompleteWhenSignalsPass() {
+        let planner = BlueprintPlanner()
+        XCTAssertEqual(planner.step6ProgressSummary(), "0/4 Step 6 tasks complete")
+
+        planner.syncStep6Tasks(
+            uiRunnerStable: true,
+            queueUISmokePassed: true,
+            step5UISmokePassed: true,
+            handoffSignedOff: true
+        )
+
+        XCTAssertEqual(planner.step6ProgressSummary(), "4/4 Step 6 tasks complete")
+        let readiness = planner.step6Readiness()
+        XCTAssertTrue(readiness.isReady)
+        XCTAssertEqual(readiness.summary, "Step 6 readiness: READY.")
+    }
+
+    @MainActor
+    func testStep6ReadinessReportsBlockersWhenTasksIncomplete() {
+        let planner = BlueprintPlanner()
+        planner.syncStep6Tasks(
+            uiRunnerStable: false,
+            queueUISmokePassed: false,
+            step5UISmokePassed: false,
+            handoffSignedOff: false
+        )
+
+        let readiness = planner.step6Readiness()
+        XCTAssertFalse(readiness.isReady)
+        XCTAssertTrue(readiness.summary.contains("BLOCKED"))
+        XCTAssertFalse(readiness.blockers.isEmpty)
+    }
+
+    @MainActor
     func testCompleteDeliveryActionMarksItemCompleteAndUpdatesProgress() {
         let planner = BlueprintPlanner()
         XCTAssertEqual(planner.deliveryActionProgressSummary, "0/9 delivery actions complete")
