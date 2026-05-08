@@ -49,11 +49,11 @@ final class ML_IntegrationUITests: XCTestCase {
     @MainActor
     func testOnboardingActionsExposeProgressTelemetry() throws {
         let app = XCUIApplication()
-        app.launchArguments.append("-ui-onboarding-dry-run")
-        app.launchArguments.append("-ui-focus-onboarding")
-        app.launch()
+        app.launchArguments = ["-ui-onboarding-dry-run", "-ui-focus-onboarding"]
 
-        let harness = try waitForOnboardingHarness(in: app, timeout: 15)
+        launchOnboardingFocusApp(app)
+
+        let harness = try waitForOnboardingHarness(in: app, timeout: 12)
 
         let runButton = harness.buttons["onboarding-run-actions-button"]
         XCTAssertTrue(runButton.waitForExistence(timeout: 8), "Run Onboarding Actions button was not visible in focus harness.")
@@ -70,31 +70,47 @@ final class ML_IntegrationUITests: XCTestCase {
     // MARK: - Harness Synchronization
 
     @MainActor
-    private func waitForOnboardingHarness(in app: XCUIApplication, timeout: TimeInterval) throws -> XCUIElement {
-        // Ensure app is actually running in foreground before waiting for accessibility markers.
+    private func launchOnboardingFocusApp(_ app: XCUIApplication) {
+        app.launch()
+        app.activate()
+
         let foregroundPredicate = NSPredicate(format: "state == %d", XCUIApplication.State.runningForeground.rawValue)
         let foregroundExpectation = XCTNSPredicateExpectation(predicate: foregroundPredicate, object: app)
-        _ = XCTWaiter.wait(for: [foregroundExpectation], timeout: min(5, timeout))
+        _ = XCTWaiter.wait(for: [foregroundExpectation], timeout: 5)
+    }
 
+    @MainActor
+    private func waitForOnboardingHarness(in app: XCUIApplication, timeout: TimeInterval) throws -> XCUIElement {
         let harness = app.otherElements["onboarding-focus-harness"]
         let readyMarker = app.staticTexts["onboarding-focus-ready"]
 
-        // Bounded retries avoid indefinite spinner/hang behavior.
-        for _ in 0..<3 {
-            if harness.waitForExistence(timeout: timeout / 3), readyMarker.waitForExistence(timeout: 2) {
-                return harness
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        if harness.waitForExistence(timeout: timeout), readyMarker.waitForExistence(timeout: 2) {
+            return harness
+        }
+
+        // One clean retry to recover from transient disabled-session launches.
+        app.terminate()
+        launchOnboardingFocusApp(app)
+        if harness.waitForExistence(timeout: timeout), readyMarker.waitForExistence(timeout: 2) {
+            return harness
         }
 
         let debugTree = app.debugDescription
         XCTContext.runActivity(named: "Onboarding harness not available") { activity in
-            let note = "Onboarding focus harness unavailable in this runner session. " +
+            let note = "Onboarding focus harness unavailable in runner session. " +
                 "launchArguments=\(app.launchArguments)\n" +
                 "appEnabled=\(app.isEnabled)\n" +
+                "appState=\(app.state.rawValue)\n" +
                 "debugDescription=\(debugTree)"
             activity.add(XCTAttachment(string: note))
+
+            let screenshot = XCUIScreen.main.screenshot()
+            let imageAttachment = XCTAttachment(screenshot: screenshot)
+            imageAttachment.name = "onboarding-harness-missing"
+            imageAttachment.lifetime = .keepAlways
+            activity.add(imageAttachment)
         }
-        throw XCTSkip("Onboarding focus harness unavailable; skipping to avoid hanging test session.")
+
+        throw XCTSkip("Onboarding focus harness unavailable after relaunch; skipping to avoid hanging test session.")
     }
 }

@@ -199,7 +199,14 @@ struct ContentView: View {
     }
 
     var body: some View {
-        applyPresentationModifiers(to:
+        if uiFocusOnboardingEnabled {
+            return AnyView(
+                applyPresentationModifiers(to: uiOnboardingFocusRootView)
+            )
+        }
+
+        return AnyView(
+            applyPresentationModifiers(to:
             NavigationStack {
             ScrollViewReader { scrollProxy in
                 VStack(spacing: 0) {
@@ -639,7 +646,7 @@ struct ContentView: View {
                 }
             }
         }
-        )
+        ))
     }
 
     private func applyPresentationModifiers<Content: View>(to content: Content) -> some View {
@@ -909,6 +916,18 @@ struct ContentView: View {
                 }
             }
             .modifier(GlassCardStyle(borderColor: sectionBorderColor))
+        }
+    }
+
+    private var uiOnboardingFocusRootView: some View {
+        VStack(spacing: 0) {
+            uiOnboardingFocusHarness
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(NSColor.windowBackgroundColor))
+        .onAppear {
+            NSApplication.shared.activate(ignoringOtherApps: true)
         }
     }
 
