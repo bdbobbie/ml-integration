@@ -3054,6 +3054,69 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testQueueEventsRecordCoreQueueLifecycleActions() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-queue-events",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected vm id")
+            return
+        }
+
+        viewModel.enqueueManagedVMStart(vmID)
+        viewModel.moveQueuedStartEarlier(vmID) // no-op move, should not crash
+        viewModel.resetQueuedStartRetries()
+        viewModel.dequeueManagedVMStart(vmID)
+
+        let messages = viewModel.queueEventPreview(limit: 10).map(\.message)
+        XCTAssertTrue(messages.contains { $0.contains("Queued start for") })
+        XCTAssertTrue(messages.contains { $0.contains("Reset queued start retry cooldowns.") })
+        XCTAssertTrue(messages.contains { $0.contains("Removed queued start for") })
+    }
+
+    @MainActor
+    func testQueueEventHistoryIsCappedToRetentionLimit() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        for _ in 0..<40 {
+            viewModel.updateQueuedStartOrder(.fifo)
+        }
+
+        XCTAssertEqual(viewModel.queueEvents.count, 30)
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

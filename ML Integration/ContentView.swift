@@ -1963,6 +1963,24 @@ struct ContentView: View {
                                     .disabled(isCreatingVM)
                                 }
                             }
+                            if !runtimeWorkbench.queueEventPreview(limit: 3).isEmpty {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Queue Events")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                    ForEach(runtimeWorkbench.queueEventPreview(limit: 3)) { event in
+                                        Text(
+                                            "• " +
+                                            event.timestamp.formatted(date: .omitted, time: .standard) +
+                                            " — " +
+                                            event.message
+                                        )
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                    }
+                                }
+                            }
 
                             HStack(spacing: 8) {
                                 Text("Concurrency Limit")
