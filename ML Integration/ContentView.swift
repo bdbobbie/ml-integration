@@ -1940,6 +1940,14 @@ struct ContentView: View {
                             Text(runtimeWorkbench.runtimeConcurrencyCapacitySummary())
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
+                            if !runtimeWorkbench.queuedStartEntries().isEmpty {
+                                Text(
+                                    "Queued starts: " +
+                                    runtimeWorkbench.queuedStartEntries().map(\.vmName).joined(separator: ", ")
+                                )
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                            }
 
                             HStack(spacing: 8) {
                                 Text("Concurrency Limit")
@@ -2295,6 +2303,13 @@ struct ContentView: View {
                                     .disabled(isCreatingVM)
 
                                     if !concurrencyBlockers.isEmpty {
+                                        Button("Queue Start") {
+                                            runtimeWorkbench.enqueueManagedVMStart(entry.id)
+                                            presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                        }
+                                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                        .disabled(isCreatingVM)
+
                                         Button("Stop Blocker") {
                                             Task {
                                                 let didStop = await runtimeWorkbench.stopFirstConcurrencyBlocker(for: entry.id)
@@ -2313,6 +2328,14 @@ struct ContentView: View {
                                                 await runtimeWorkbench.stopFirstConcurrencyBlockerAndRetryStart(for: entry.id)
                                                 presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
                                             }
+                                        }
+                                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                        .disabled(isCreatingVM)
+                                    }
+                                    if runtimeWorkbench.queuedStartVMIDs.contains(entry.id) {
+                                        Button("Remove from Queue") {
+                                            runtimeWorkbench.dequeueManagedVMStart(entry.id)
+                                            presentInfo("Removed \(entry.vmName) from start queue.")
                                         }
                                         .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                         .disabled(isCreatingVM)

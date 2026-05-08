@@ -109,6 +109,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     @Published private(set) var installedVMEntries: [VMRegistryEntry] = []
     @Published private(set) var activeRuntimeVMIDs: [UUID] = []
     @Published private(set) var maxConcurrentRunningVMs: Int = 1
+    @Published private(set) var queuedStartVMIDs: [UUID] = []
     @Published private(set) var runtimeStateByVMID: [UUID: VMRuntimeState] = [:]
     @Published private(set) var fleetDiagnosticsByVMID: [UUID: FleetRuntimeDiagnostic] = [:]
     @Published private(set) var integrationCapabilitiesByVMID: [UUID: VMIntegrationCapabilities] = [:]
@@ -1062,6 +1063,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     func updateMaxConcurrentRunningVMs(_ newLimit: Int) {
         maxConcurrentRunningVMs = max(1, newLimit)
         persistRuntimeConcurrencySettings()
+        Task { await processQueuedStartsIfCapacityAvailable() }
     }
 
     private func runtimeConcurrencySettingsURL() -> URL {
@@ -1119,6 +1121,7 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             vmRuntimeStatusMessage = "VM \(vmID.uuidString) stop request dispatched."
             activeRuntimeVMIDs.removeAll { $0 == vmID }
             persistRuntimeSessionSnapshot(vmID: vmID, state: .stopped)
+            await processQueuedStartsIfCapacityAvailable()
             return true
         } catch {
             traceVM("stopActiveVM failed vmID=\(vmID.uuidString) error=\(error.localizedDescription)")
@@ -1290,6 +1293,46 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         await startManagedVM(id)
     }
 
+    func enqueueManagedVMStart(_ id: UUID) {
+        guard installedVMEntries.contains(where: { $0.id == id }) else {
+            vmRuntimeStatusMessage = "Cannot queue start: selected VM is no longer installed."
+            return
+        }
+        guard !queuedStartVMIDs.contains(id) else {
+            vmRuntimeStatusMessage = "VM start already queued."
+            return
+        }
+        queuedStartVMIDs.append(id)
+        let queuedNames = queuedStartVMIDs.compactMap { queuedID in
+            installedVMEntries.first(where: { $0.id == queuedID })?.vmName
+        }
+        vmRuntimeStatusMessage = "Queued VM start(s): \(queuedNames.joined(separator: ", "))."
+    }
+
+    func dequeueManagedVMStart(_ id: UUID) {
+        queuedStartVMIDs.removeAll { $0 == id }
+    }
+
+    func queuedStartEntries() -> [VMRegistryEntry] {
+        queuedStartVMIDs.compactMap { queuedID in
+            installedVMEntries.first(where: { $0.id == queuedID })
+        }
+    }
+
+    private func processQueuedStartsIfCapacityAvailable() async {
+        while !queuedStartVMIDs.isEmpty && activeRuntimeVMIDs.count < maxConcurrentRunningVMs {
+            let nextVMID = queuedStartVMIDs.removeFirst()
+            await startManagedVM(nextVMID)
+            if runtimeState(for: nextVMID) != .running {
+                // Requeue only when blocked again by concurrency pressure.
+                if vmRuntimeStatusMessage.contains("Concurrency limit reached") {
+                    queuedStartVMIDs.append(nextVMID)
+                }
+                break
+            }
+        }
+    }
+
     func stopManagedVM(_ id: UUID) async -> Bool {
         await selectManagedVM(id)
         return await stopActiveVM()
@@ -1307,7 +1350,8 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
     func runtimeConcurrencyCapacitySummary() -> String {
         let runningCount = activeRuntimeVMIDs.count
         let remaining = max(0, maxConcurrentRunningVMs - runningCount)
-        return "Concurrency capacity: \(runningCount)/\(maxConcurrentRunningVMs) running, \(remaining) slot(s) available."
+        let queuedCount = queuedStartVMIDs.count
+        return "Concurrency capacity: \(runningCount)/\(maxConcurrentRunningVMs) running, \(remaining) slot(s) available, \(queuedCount) queued."
     }
 
     func fleetEntries(filteredBy filter: FleetStateFilter) -> [VMRegistryEntry] {
