@@ -1443,6 +1443,12 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         Array(queueEvents.prefix(max(0, limit)))
     }
 
+    func clearQueueEvents() {
+        let removed = queueEvents.count
+        queueEvents.removeAll()
+        vmRuntimeStatusMessage = "Cleared \(removed) queue event(s)."
+    }
+
     func queueEventsJSON(limit: Int = 50) -> String {
         let events = queueEventPreview(limit: limit)
         guard !events.isEmpty else { return "" }

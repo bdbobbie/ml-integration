@@ -3175,6 +3175,46 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testClearQueueEventsRemovesHistoryAndClearsJSONExport() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-clear-events",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmID = viewModel.activeVMID else {
+            XCTFail("Expected vm id")
+            return
+        }
+        viewModel.enqueueManagedVMStart(vmID)
+        XCTAssertFalse(viewModel.queueEvents.isEmpty)
+        XCTAssertFalse(viewModel.queueEventsJSON(limit: 10).isEmpty)
+
+        viewModel.clearQueueEvents()
+        XCTAssertTrue(viewModel.queueEvents.isEmpty)
+        XCTAssertEqual(viewModel.queueEventsJSON(limit: 10), "")
+        XCTAssertTrue(viewModel.vmRuntimeStatusMessage.contains("Cleared"))
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

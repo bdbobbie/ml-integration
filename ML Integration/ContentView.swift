@@ -1992,6 +1992,13 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(RedTextWhiteOutlineButtonStyle())
                                     .disabled(isCreatingVM)
+
+                                    Button("Clear Queue Events") {
+                                        runtimeWorkbench.clearQueueEvents()
+                                        presentInfo(runtimeWorkbench.vmRuntimeStatusMessage)
+                                    }
+                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                    .disabled(isCreatingVM || runtimeWorkbench.queueEvents.isEmpty)
                                 }
                             }
 
