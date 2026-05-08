@@ -1241,7 +1241,14 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         let healthCounts = integrationHealthCounts()
         return
             "Runtime fleet | Installed: \(installedVMEntries.count) | Running: \(runningCount) | " +
+            "Limit: \(maxConcurrentRunningVMs) | " +
             "Healthy: \(healthCounts.healthy) | Warning: \(healthCounts.warning) | Error: \(healthCounts.error)"
+    }
+
+    func runtimeConcurrencyCapacitySummary() -> String {
+        let runningCount = activeRuntimeVMIDs.count
+        let remaining = max(0, maxConcurrentRunningVMs - runningCount)
+        return "Concurrency capacity: \(runningCount)/\(maxConcurrentRunningVMs) running, \(remaining) slot(s) available."
     }
 
     func fleetEntries(filteredBy filter: FleetStateFilter) -> [VMRegistryEntry] {

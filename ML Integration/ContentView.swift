@@ -1937,6 +1937,31 @@ struct ContentView: View {
                             Text(runtimeWorkbench.runtimeFleetStatusSummary())
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                            Text(runtimeWorkbench.runtimeConcurrencyCapacitySummary())
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+
+                            HStack(spacing: 8) {
+                                Text("Concurrency Limit")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Picker(
+                                    "Concurrency Limit",
+                                    selection: Binding(
+                                        get: { runtimeWorkbench.maxConcurrentRunningVMs },
+                                        set: { newValue in
+                                            runtimeWorkbench.updateMaxConcurrentRunningVMs(newValue)
+                                        }
+                                    )
+                                ) {
+                                    Text("1").tag(1)
+                                    Text("2").tag(2)
+                                    Text("3").tag(3)
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(maxWidth: 220)
+                                .disabled(isCreatingVM)
+                            }
 
                             Picker("Filter", selection: $runtimeFleetFilter) {
                                 ForEach(RuntimeWorkbenchViewModel.FleetStateFilter.allCases) { filter in
