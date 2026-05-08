@@ -3215,6 +3215,81 @@ final class ML_IntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testQueueHealthSummaryReportsEmptyWhenNoQueuedItems() {
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: MockProvisioningService(),
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        XCTAssertEqual(viewModel.queueHealthSummary(), "Queue health: empty.")
+    }
+
+    @MainActor
+    func testQueueHealthSummaryIncludesReadyCooldownAndRetryingCounts() async throws {
+        let installerURL = try makeTemporaryInstallerImage()
+        defer { try? FileManager.default.removeItem(at: installerURL) }
+
+        let provisioning = MockProvisioningService()
+        await provisioning.setAllowConcurrentStarts(true)
+        let viewModel = RuntimeWorkbenchViewModel(
+            hostService: MockHostService(),
+            catalogService: MockCatalogService(),
+            provisioningService: provisioning,
+            integrationService: MockIntegrationService(),
+            healthService: MockHealthService(),
+            uninstallService: MockCleanupService(),
+            escalationService: MockEscalationService(),
+            downloader: MockDownloader(),
+            maxConcurrentRunningVMs: 1
+        )
+
+        await viewModel.scaffoldInstall(
+            distribution: .ubuntu,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-queue-health-a",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmA = viewModel.activeVMID else {
+            XCTFail("Expected vmA id")
+            return
+        }
+
+        await viewModel.scaffoldInstall(
+            distribution: .fedora,
+            architecture: .appleSilicon,
+            runtime: .appleVirtualization,
+            vmName: "vm-queue-health-b",
+            installerImagePath: installerURL.path,
+            kernelImagePath: "",
+            initialRamdiskPath: ""
+        )
+        guard let vmB = viewModel.activeVMID else {
+            XCTFail("Expected vmB id")
+            return
+        }
+
+        await provisioning.injectStartFailure(for: vmA)
+        viewModel.enqueueManagedVMStart(vmA)
+        viewModel.enqueueManagedVMStart(vmB)
+        await viewModel.runQueuedStartSchedulerTick() // vmA fails once => cooldown+retry history
+
+        let summary = viewModel.queueHealthSummary()
+        XCTAssertTrue(summary.contains("ready"))
+        XCTAssertTrue(summary.contains("cooling down"))
+        XCTAssertTrue(summary.contains("retry history"))
+    }
+
+    @MainActor
     func testStartVMFailsWithoutActiveVM() async {
         let viewModel = RuntimeWorkbenchViewModel(
             hostService: MockHostService(),

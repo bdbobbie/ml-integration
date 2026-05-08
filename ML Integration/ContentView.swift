@@ -1940,6 +1940,9 @@ struct ContentView: View {
                             Text(runtimeWorkbench.runtimeConcurrencyCapacitySummary())
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
+                            Text(runtimeWorkbench.queueHealthSummary())
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                             if !runtimeWorkbench.queuedStartEntries().isEmpty {
                                 Text(
                                     "Queued starts: " +

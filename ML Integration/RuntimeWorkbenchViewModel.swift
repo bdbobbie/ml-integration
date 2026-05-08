@@ -1575,6 +1575,22 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
         return "Concurrency capacity: \(runningCount)/\(maxConcurrentRunningVMs) running, \(remaining) slot(s) available, \(queuedCount) queued."
     }
 
+    func queueHealthSummary(now: Date = Date()) -> String {
+        guard !queuedStartVMIDs.isEmpty else {
+            return "Queue health: empty."
+        }
+        let queuedIDs = Set(queuedStartVMIDs)
+        let cooldownCount = queuedStartNextAttemptAtByVMID
+            .filter { queuedIDs.contains($0.key) && $0.value > now }
+            .count
+        let retryingCount = queuedStartRetryCounts
+            .filter { queuedIDs.contains($0.key) && $0.value > 0 }
+            .count
+        let readyCount = max(0, queuedStartVMIDs.count - cooldownCount)
+        return
+            "Queue health: \(readyCount) ready, \(cooldownCount) cooling down, \(retryingCount) with retry history."
+    }
+
     func fleetEntries(filteredBy filter: FleetStateFilter) -> [VMRegistryEntry] {
         installedVMEntries
             .filter { entry in
