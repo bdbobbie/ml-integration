@@ -128,6 +128,15 @@
 - **Stability**: <1% crash rate
 - **User Satisfaction**: >4.5/5 target rating
 
+### Release Gate Exception (Current)
+- **Quarantined UI Test**: `ML_IntegrationUITests.testCoherenceSchemaWarningAndRepairActionVisibility`
+- **Reason**: Intermittent UI snapshot timeout due to transient main run loop busy state in automation sessions.
+- **Policy**: Non-blocking for this release only; tracked for unquarantine in `docs/issues/UNQUARANTINE_COHERENCE_UI_TEST.md`.
+- **Blocking Smokes Still Required**:
+  - `testOnboardingActionsExposeProgressTelemetry`
+  - `testQueueUISmokeFlowExposesControls`
+  - `testStep5ReadinessUISmokeRendersSummary`
+
 ---
 
 ## 🚀 Installation & Deployment

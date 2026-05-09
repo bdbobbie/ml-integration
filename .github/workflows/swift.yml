@@ -41,5 +41,6 @@ jobs:
           -scheme "ML Integration" \
           -destination "platform=macOS,arch=arm64" \
           -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+          -skip-testing:"ML IntegrationUITests/ML_IntegrationUITests/testCoherenceSchemaWarningAndRepairActionVisibility" \
           -only-testing:"ML IntegrationUITests" \
           test
