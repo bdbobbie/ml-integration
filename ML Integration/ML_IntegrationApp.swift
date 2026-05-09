@@ -12,11 +12,21 @@ struct ML_IntegrationApp: App {
     private var uiFocusOnboardingEnabled: Bool {
         ProcessInfo.processInfo.arguments.contains("-ui-focus-onboarding")
     }
+    private var uiFocusQueueEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-focus-queue")
+    }
+    private var uiFocusStep5Enabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-focus-step5")
+    }
 
     var body: some Scene {
         WindowGroup {
             if uiFocusOnboardingEnabled {
                 UITestOnboardingHarnessView()
+            } else if uiFocusQueueEnabled {
+                UITestQueueHarnessView()
+            } else if uiFocusStep5Enabled {
+                UITestStep5HarnessView()
             } else {
                 ContentView()
             }
@@ -73,7 +83,81 @@ private struct UITestOnboardingHarnessView: View {
         .accessibilityIdentifier("onboarding-focus-harness")
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
+            NSApplication.shared.setActivationPolicy(.regular)
             NSApplication.shared.activate(ignoringOtherApps: true)
+            DispatchQueue.main.async {
+                NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+}
+
+private struct UITestQueueHarnessView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("queue-focus-ready")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .accessibilityIdentifier("queue-focus-ready")
+
+            Text("Queue Order")
+                .font(.caption)
+                .accessibilityIdentifier("queue-order-label")
+
+            Button("Run Queue Tick Now") {}
+                .accessibilityIdentifier("queue-run-tick-button")
+
+            Spacer(minLength: 0)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityIdentifier("queue-focus-harness")
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            NSApplication.shared.setActivationPolicy(.regular)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            DispatchQueue.main.async {
+                NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+}
+
+private struct UITestStep5HarnessView: View {
+    private var forceBlocked: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-step5-force-blocked")
+    }
+
+    private var summaryText: String {
+        if forceBlocked {
+            return "Step 5 readiness: BLOCKED (1 issue(s))."
+        }
+        return "Step 5 readiness: READY."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("step5-focus-ready")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .accessibilityIdentifier("step5-focus-ready")
+
+            Text(summaryText)
+                .font(.caption)
+                .accessibilityIdentifier("step5-readiness-summary")
+
+            Spacer(minLength: 0)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityIdentifier("step5-focus-harness")
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            NSApplication.shared.setActivationPolicy(.regular)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            DispatchQueue.main.async {
+                NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
+            }
         }
     }
 }

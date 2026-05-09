@@ -1,0 +1,55 @@
+{
+  "configurations" : [
+    {
+      "id" : "072BFE44-5207-44CE-849A-9C6C7772A068",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    },
+    {
+      "enabled" : false,
+      "id" : "B29A0399-780D-47F7-A020-5645436F2FBF",
+      "name" : "Configuration 2",
+      "options" : {
+
+      }
+    },
+    {
+      "enabled" : false,
+      "id" : "C05D66DF-C9A3-47A0-A9B1-4E24DA0B7D42",
+      "name" : "Configuration 3",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : false,
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:ML Integration.xcodeproj",
+      "identifier" : "7041CA142F92BA8D0015A49D",
+      "name" : "ML Integration"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:ML Integration.xcodeproj",
+        "identifier" : "7041CA212F92BA8F0015A49D",
+        "name" : "ML IntegrationTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:ML Integration.xcodeproj",
+        "identifier" : "7041CA2B2F92BA8F0015A49D",
+        "name" : "ML IntegrationUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

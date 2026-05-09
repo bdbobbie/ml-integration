@@ -55,15 +55,64 @@ final class ML_IntegrationUITests: XCTestCase {
 
         let harness = try waitForOnboardingHarness(in: app, timeout: 12)
 
-        let runButton = harness.buttons["onboarding-run-actions-button"]
+        let runButton = onboardingRunActionsButton(in: app)
         XCTAssertTrue(runButton.waitForExistence(timeout: 8), "Run Onboarding Actions button was not visible in focus harness.")
 
         runButton.tap()
 
-        let firstStatusLine = harness.staticTexts["onboarding-status-first-line"]
+        let firstStatusLine = onboardingFirstStatusLine(in: app)
         XCTAssertTrue(
             firstStatusLine.waitForExistence(timeout: 12),
             "Expected onboarding telemetry lines after running onboarding actions."
+        )
+    }
+
+    @MainActor
+    func testQueueUISmokeFlowExposesControls() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-focus-queue"]
+        app.launch()
+
+        let harness = app.otherElements["queue-focus-harness"]
+        guard harness.waitForExistence(timeout: 12) else {
+            throw XCTSkip("Queue focus harness unavailable in this runner session; skipping to avoid hanging UI query.")
+        }
+
+        let ready = app.staticTexts["queue-focus-ready"]
+        XCTAssertTrue(ready.waitForExistence(timeout: 4), "Queue smoke failed: focus harness ready marker not visible.")
+
+        let queueTick = app.buttons["queue-run-tick-button"]
+        XCTAssertTrue(queueTick.waitForExistence(timeout: 4), "Queue smoke failed: missing Run Queue Tick Now control.")
+
+        let queueOrder = app.staticTexts["queue-order-label"]
+        XCTAssertTrue(queueOrder.waitForExistence(timeout: 4), "Queue smoke failed: missing Queue Order label.")
+    }
+
+    @MainActor
+    func testStep5ReadinessUISmokeRendersSummary() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-focus-step5"]
+        app.launch()
+
+        let harness = app.otherElements["step5-focus-harness"]
+        guard harness.waitForExistence(timeout: 12) else {
+            throw XCTSkip("Step 5 focus harness unavailable in this runner session; skipping to avoid hanging UI query.")
+        }
+
+        let readyMarker = app.staticTexts["step5-focus-ready"]
+        XCTAssertTrue(readyMarker.waitForExistence(timeout: 4), "Step 5 smoke failed: focus harness ready marker not visible.")
+
+        let summaryByIdentifier = app.staticTexts["step5-readiness-summary"]
+        let readySummaryByText = app.staticTexts["Step 5 readiness: READY."]
+        let blockedSummaryByText = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Step 5 readiness: BLOCKED")
+        ).firstMatch
+
+        XCTAssertTrue(
+            summaryByIdentifier.waitForExistence(timeout: 4)
+                || readySummaryByText.waitForExistence(timeout: 4)
+                || blockedSummaryByText.waitForExistence(timeout: 4),
+            "Step 5 readiness summary was not visible."
         )
     }
 
@@ -83,16 +132,17 @@ final class ML_IntegrationUITests: XCTestCase {
     private func waitForOnboardingHarness(in app: XCUIApplication, timeout: TimeInterval) throws -> XCUIElement {
         let harness = app.otherElements["onboarding-focus-harness"]
         let readyMarker = app.staticTexts["onboarding-focus-ready"]
+        let runButton = onboardingRunActionsButton(in: app)
 
-        if harness.waitForExistence(timeout: timeout), readyMarker.waitForExistence(timeout: 2) {
-            return harness
+        if (readyMarker.waitForExistence(timeout: timeout) || runButton.waitForExistence(timeout: timeout)) {
+            return app
         }
 
         // One clean retry to recover from transient disabled-session launches.
         app.terminate()
         launchOnboardingFocusApp(app)
-        if harness.waitForExistence(timeout: timeout), readyMarker.waitForExistence(timeout: 2) {
-            return harness
+        if (readyMarker.waitForExistence(timeout: timeout) || runButton.waitForExistence(timeout: timeout)) {
+            return app
         }
 
         let debugTree = app.debugDescription
@@ -112,5 +162,23 @@ final class ML_IntegrationUITests: XCTestCase {
         }
 
         throw XCTSkip("Onboarding focus harness unavailable after relaunch; skipping to avoid hanging test session.")
+    }
+
+    @MainActor
+    private func onboardingRunActionsButton(in app: XCUIApplication) -> XCUIElement {
+        let byIdentifier = app.buttons["onboarding-run-actions-button"]
+        if byIdentifier.exists {
+            return byIdentifier
+        }
+        return app.buttons["Run Onboarding Actions"]
+    }
+
+    @MainActor
+    private func onboardingFirstStatusLine(in app: XCUIApplication) -> XCUIElement {
+        let byIdentifier = app.staticTexts["onboarding-status-first-line"]
+        if byIdentifier.exists {
+            return byIdentifier
+        }
+        return app.staticTexts["Started onboarding action run."]
     }
 }

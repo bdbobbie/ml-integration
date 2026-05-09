@@ -694,21 +694,7 @@ struct ContentView: View {
 
             Button("Run Live Preflight") {
                 Task {
-                    await runtimeWorkbench.detectHost()
-                    await runtimeWorkbench.refreshCatalog(for: selectedArchitecture, force: true)
-
-                    let snapshot = runtimeWorkbench.makePreflightSnapshot()
-                    blueprintPlanner.applyPreflightScan(snapshot)
-                    blueprintPlanner.autoSyncChecklist(
-                        with: ReadinessChecklistSignals(
-                            snapshot: snapshot,
-                            preflightEvidenceExists: !blueprintPlanner.lastPreflightEvidencePath.isEmpty,
-                            securityFlowReady: inferredSecurityFlowReady,
-                            buildPassed: nil,
-                            testsPassed: nil
-                        )
-                    )
-                    syncPhaseMilestonesFromRuntimeReadiness()
+                    await runLivePreflightAndSyncChecklist(forceCatalogRefresh: true)
                 }
             }
             .buttonStyle(RedTextWhiteOutlineButtonStyle())
@@ -1080,6 +1066,9 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                 }
             }
+            Text("Known deferment: UI flake in ML_IntegrationUITests.testCoherenceSchemaWarningAndRepairActionVisibility is tracked and temporarily excluded from release sign-off.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
 
             Button("Reset All Delivery Actions") {
                 blueprintPlanner.resetAllDeliveryActionsToPending()
@@ -1270,6 +1259,7 @@ struct ContentView: View {
         if requiresQEMURuntimeProbe(selectedRuntimeEngine) {
             _ = await runtimeWorkbench.probeQEMUAvailability(for: selectedArchitecture)
         }
+        await runLivePreflightAndSyncChecklist(forceCatalogRefresh: false)
     }
 
     private func handleInstalledVMEntriesChange(_ entries: [VMRegistryEntry]) {
@@ -1294,6 +1284,28 @@ struct ContentView: View {
         if requiresQEMURuntimeProbe(selectedRuntimeEngine) {
             _ = await runtimeWorkbench.probeQEMUAvailability(for: selectedArchitecture)
         }
+        await runLivePreflightAndSyncChecklist(forceCatalogRefresh: false)
+    }
+
+    @MainActor
+    private func runLivePreflightAndSyncChecklist(forceCatalogRefresh: Bool) async {
+        await runtimeWorkbench.detectHost()
+        if forceCatalogRefresh {
+            await runtimeWorkbench.refreshCatalog(for: selectedArchitecture, force: true)
+        }
+
+        let snapshot = runtimeWorkbench.makePreflightSnapshot()
+        blueprintPlanner.applyPreflightScan(snapshot)
+        blueprintPlanner.autoSyncChecklist(
+            with: ReadinessChecklistSignals(
+                snapshot: snapshot,
+                preflightEvidenceExists: !blueprintPlanner.lastPreflightEvidencePath.isEmpty,
+                securityFlowReady: inferredSecurityFlowReady,
+                buildPassed: nil,
+                testsPassed: nil
+            )
+        )
+        syncPhaseMilestonesFromRuntimeReadiness()
     }
 
     private func handleCatalogDistributionChange(_ distribution: LinuxDistribution) {

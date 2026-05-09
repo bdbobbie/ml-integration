@@ -32,6 +32,7 @@
 		7041CA152F92BA8D0015A49D /* ML Integration.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "ML Integration.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7041CA222F92BA8F0015A49D /* ML IntegrationTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "ML IntegrationTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7041CA2C2F92BA8F0015A49D /* ML IntegrationUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "ML IntegrationUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		70AC823E2FAF9BAD000CDFCB /* ML Integration.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = "ML Integration.xctestplan"; sourceTree = "<group>"; };
 		70DB13AA2F9A7BAF00AE2A9E /* DebugTraceLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugTraceLogger.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -81,6 +82,7 @@
 		7041CA0C2F92BA8D0015A49D = {
 			isa = PBXGroup;
 			children = (
+				70AC823E2FAF9BAD000CDFCB /* ML Integration.xctestplan */,
 				7041CA172F92BA8D0015A49D /* ML Integration */,
 				7041CA252F92BA8F0015A49D /* ML IntegrationTests */,
 				7041CA2F2F92BA8F0015A49D /* ML IntegrationUITests */,
