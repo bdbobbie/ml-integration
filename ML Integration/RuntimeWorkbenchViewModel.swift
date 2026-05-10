@@ -262,9 +262,9 @@ final class RuntimeWorkbenchViewModel: ObservableObject {
             await DebugTraceLogger.shared.append("RuntimeWorkbenchViewModel init complete. downloadDirectoryPath=\(downloadPath)")
             await DebugTraceLogger.shared.append("Debug trace log path: \(logPath)")
             await MainActor.run {
-                self.refreshDownloadedInstallerPresence()
-                self.loadCustomCatalogEntries()
-                self.loadLauncherRunHistory()
+                // self.refreshDownloadedInstallerPresence()
+                // self.loadCustomCatalogEntries()
+                // self.loadLauncherRunHistory()
             }
         }
     }
