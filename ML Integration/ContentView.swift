@@ -1240,7 +1240,7 @@ struct ContentView: View {
     }
 
     private func handleOnAppear() async {
-        await runtimeWorkbench.restoreVMRegistryState()
+        // await runtimeWorkbench.restoreVMRegistryState()
         await MainActor.run {
             runtimeWorkbench.refreshDownloadedInstallerPresence()
             selectedInstalledVMID = runtimeWorkbench.activeVMID
@@ -1250,16 +1250,16 @@ struct ContentView: View {
                 downloadedInstallerByDistribution[$0] != nil
             }
         }
-        await refreshCatalogAvailability(force: true)
+        // await refreshCatalogAvailability(force: true)
         await MainActor.run {
             selectedRemovalDistribution = LinuxDistribution.allCases.first {
                 downloadedInstallerByDistribution[$0] != nil
             }
         }
-        if requiresQEMURuntimeProbe(selectedRuntimeEngine) {
-            _ = await runtimeWorkbench.probeQEMUAvailability(for: selectedArchitecture)
-        }
-        await runLivePreflightAndSyncChecklist(forceCatalogRefresh: false)
+        // if requiresQEMURuntimeProbe(selectedRuntimeEngine) {
+        //     _ = await runtimeWorkbench.probeQEMUAvailability(for: selectedArchitecture)
+        // }
+        // await runLivePreflightAndSyncChecklist(forceCatalogRefresh: false)
     }
 
     private func handleInstalledVMEntriesChange(_ entries: [VMRegistryEntry]) {
