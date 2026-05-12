@@ -76,7 +76,6 @@ struct ContentView: View {
     @State private var showConsoleRuntimeInfo: Bool = false
     @State private var consoleRefreshToken: UUID = UUID()
     @State private var isConsoleExpanded: Bool = false
-    @State private var showSafeStartupActions: Bool = false
     @State private var showReportIssueSheet: Bool = false
     @State private var reportIssueTitle: String = ""
     @State private var reportIssueDetails: String = ""
@@ -200,82 +199,155 @@ struct ContentView: View {
     }
 
     var body: some View {
-        applyPresentationModifiers(to:
-            Group {
-                if showSafeStartupActions {
-                    safeStartupActionView
-                } else {
-                    safeStartupPlaceholderView
+        if uiFocusOnboardingEnabled {
+            return AnyView(
+                applyPresentationModifiers(to: uiOnboardingFocusRootView)
+            )
+        }
+
+        return AnyView(
+            applyPresentationModifiers(to:
+                NavigationStack {
+                    ScrollViewReader { scrollProxy in
+                        VStack(spacing: 0) {
+                            // Header
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("ML Integration")
+                                        .font(.largeTitle)
+                                        .fontWeight(.bold)
+                                    Text("Linux Virtualization Manager")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Text("© 2026 TBDO Inc.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(useNativeMaterialStyle ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(Color(NSColor.controlBackgroundColor)))
+                            .overlay(
+                                Rectangle()
+                                    .stroke(Color.white.opacity(0.34), lineWidth: 1)
+                            )
+                            .shadow(color: Color.white.opacity(0.08), radius: 1, x: 0, y: 1)
+                            
+                            Divider()
+                            
+                            // Main Content
+                            if uiForceSchemaInvalid || uiForceRepairActionEnabled {
+                                uiTestSchemaWarningBanner
+                            }
+                            if uiFocusOnboardingEnabled {
+                                uiOnboardingFocusHarness
+                            }
+
+                            ScrollView {
+                                VStack(spacing: 20) {
+                                    // VM Controls Section
+                                    vmManagementSectionView(scrollProxy: scrollProxy)
+
+                                    // OS Catalog Section
+                                    Section {
+                                        VStack(alignment: .leading, spacing: 12) {
+                                            HStack {
+                                                Spacer()
+                                                Text("OS Catalog")
+                                                    .font(.headline)
+                                                    .accessibilityAddTraits(.isHeader)
+                                                Spacer()
+                                            }
+
+                                            Text("Download the installer for a listed distro, then click Install when ready.")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+
+                                            if availableCatalogDistributions.contains(.debian) {
+                                                Picker("Debian Installer Type", selection: $selectedDebianInstallerProfile) {
+                                                    ForEach(DebianInstallerProfile.allCases) { profile in
+                                                        Text(profile.rawValue).tag(profile)
+                                                    }
+                                                }
+                                                .modifier(WhiteOutlinedControl())
+                                            }
+
+                                            if availableCatalogDistributions.isEmpty {
+                                                Text("No catalog entries are currently available for \(selectedArchitecture.rawValue).")
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
+                                            }
+
+                                            ForEach(availableCatalogDistributions) { distribution in
+                                                let artifact = preferredArtifact(
+                                                    for: distribution,
+                                                    artifacts: runtimeWorkbench.artifacts
+                                                )
+                                                HStack(spacing: 8) {
+                                                    Button("Download \(distribution.rawValue)") {
+                                                        activeDownloadTask = Task {
+                                                            await downloadInstaller(for: distribution)
+                                                            presentInfo(runtimeWorkbench.downloadStatusMessage.isEmpty ? statusMessage : runtimeWorkbench.downloadStatusMessage)
+                                                            await MainActor.run {
+                                                                activeDownloadTask = nil
+                                                            }
+                                                        }
+                                                    }
+                                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                                    .disabled(
+                                                        isCreatingVM
+                                                            || activeCatalogActionDistribution != nil
+                                                            || runtimeWorkbench.isDownloadInProgress
+                                                            || artifact == nil
+                                                    )
+
+                                                    Button("Install") {
+                                                        Task {
+                                                            await installDownloadedDistribution(distribution)
+                                                            presentInfo(statusMessage)
+                                                        }
+                                                    }
+                                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                                    .disabled(
+                                                        isCreatingVM
+                                                            || (distribution != .windows11 && !hasInstallSource(for: distribution))
+                                                            || artifact == nil
+                                                    )
+
+                                                    Button("Source details") {
+                                                        selectedSourceDetailsArtifact = preferredArtifact(
+                                                            for: distribution,
+                                                            artifacts: runtimeWorkbench.artifacts
+                                                        )
+                                                        presentInfo("Opened source details for \(distribution.rawValue).")
+                                                    }
+                                                    .buttonStyle(RedTextWhiteOutlineButtonStyle())
+                                                    .disabled(
+                                                        artifact == nil
+                                                    )
+                                                }
+                                                if artifact == nil {
+                                                    Text("\(distribution.rawValue) catalog source is unavailable for \(selectedArchitecture.rawValue) right now.")
+                                                        .font(.caption2)
+                                                        .foregroundColor(.secondary)
+                                                }
+                                            }
+                                        }
+                                        .modifier(GlassCardStyle(borderColor: sectionBorderColor))
+                                    }
+                                }
+                                .padding()
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .background(Color(NSColor.windowBackgroundColor))
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(NSColor.windowBackgroundColor))
+                .task {
+                    await handleOnAppear()
+                }
+            )
         )
-    }
-
-    private var safeStartupPlaceholderView: some View {
-        VStack(spacing: 20) {
-            Text("ML Integration")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-            Text("Safe startup mode")
-                .font(.title3)
-                .foregroundColor(.secondary)
-            Text("Startup initialization is disabled for safe launch. Tap the button below to continue into the app action panel.")
-                .font(.body)
-                .multilineTextAlignment(.center)
-                .padding()
-            Button("Continue") {
-                showSafeStartupActions = true
-            }
-            .keyboardShortcut(.defaultAction)
-            .buttonStyle(RedTextWhiteOutlineButtonStyle())
-        }
-    }
-
-    private var safeStartupActionView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("ML Integration")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                Text("Safe startup actions")
-                    .font(.title3)
-                    .foregroundColor(.secondary)
-                Text("Select an action to begin. This view is intentionally lightweight and only starts work when you tap a button.")
-                    .font(.body)
-                    .multilineTextAlignment(.leading)
-                    .padding(.bottom, 10)
-
-                Button("Run Live Preflight") {
-                    Task {
-                        await runLivePreflightAndSyncChecklist(forceCatalogRefresh: true)
-                    }
-                }
-                .buttonStyle(RedTextWhiteOutlineButtonStyle())
-
-                Button("Run Onboarding Actions") {
-                    Task {
-                        await runOnboardingActions()
-                    }
-                }
-                .buttonStyle(RedTextWhiteOutlineButtonStyle())
-
-                Button("Browse Installer") {
-                    showFilePicker = true
-                }
-                .buttonStyle(RedTextWhiteOutlineButtonStyle())
-
-                Button("Return to Safe Startup") {
-                    showSafeStartupActions = false
-                }
-                .buttonStyle(RedTextWhiteOutlineButtonStyle())
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-    }
-
     private func applyPresentationModifiers<Content: View>(to content: Content) -> some View {
         content
             .fileImporter(
