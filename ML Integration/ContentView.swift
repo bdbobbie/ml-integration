@@ -76,6 +76,7 @@ struct ContentView: View {
     @State private var showConsoleRuntimeInfo: Bool = false
     @State private var consoleRefreshToken: UUID = UUID()
     @State private var isConsoleExpanded: Bool = false
+    @State private var showSafeStartupActions: Bool = false
     @State private var showReportIssueSheet: Bool = false
     @State private var reportIssueTitle: String = ""
     @State private var reportIssueDetails: String = ""
@@ -199,454 +200,80 @@ struct ContentView: View {
     }
 
     var body: some View {
-        if uiFocusOnboardingEnabled {
-            return AnyView(
-                applyPresentationModifiers(to: uiOnboardingFocusRootView)
-            )
-        }
-
-        return AnyView(
-            applyPresentationModifiers(to:
-            NavigationStack {
-            ScrollViewReader { scrollProxy in
-                VStack(spacing: 0) {
-                // Header
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("ML Integration")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                        Text("Linux Virtualization Manager")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    Text("© 2026 TBDO Inc.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+        applyPresentationModifiers(to:
+            Group {
+                if showSafeStartupActions {
+                    safeStartupActionView
+                } else {
+                    safeStartupPlaceholderView
                 }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.windowBackgroundColor))
+        )
+    }
+
+    private var safeStartupPlaceholderView: some View {
+        VStack(spacing: 20) {
+            Text("ML Integration")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+            Text("Safe startup mode")
+                .font(.title3)
+                .foregroundColor(.secondary)
+            Text("Startup initialization is disabled for safe launch. Tap the button below to continue into the app action panel.")
+                .font(.body)
+                .multilineTextAlignment(.center)
                 .padding()
-                .background(useNativeMaterialStyle ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(Color(NSColor.controlBackgroundColor)))
-                .overlay(
-                    Rectangle()
-                        .stroke(Color.white.opacity(0.34), lineWidth: 1)
-                )
-                .shadow(color: Color.white.opacity(0.08), radius: 1, x: 0, y: 1)
-                
-                Divider()
-                
-                // Main Content
-                if uiForceSchemaInvalid || uiForceRepairActionEnabled {
-                    uiTestSchemaWarningBanner
-                }
-                if uiFocusOnboardingEnabled {
-                    uiOnboardingFocusHarness
-                }
-
-                ScrollView {
-                    VStack(spacing: 20) {
-                        // VM Controls Section
-                        vmManagementSectionView(scrollProxy: scrollProxy)
-
-                        // OS Catalog Section
-                        Section {
-                            VStack(alignment: .leading, spacing: 12) {
-                                HStack {
-                                    Spacer()
-                                    Text("OS Catalog")
-                                        .font(.headline)
-                                        .accessibilityAddTraits(.isHeader)
-                                    Spacer()
-                                }
-
-                                Text("Download the installer for a listed distro, then click Install when ready.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-
-                                if availableCatalogDistributions.contains(.debian) {
-                                    Picker("Debian Installer Type", selection: $selectedDebianInstallerProfile) {
-                                        ForEach(DebianInstallerProfile.allCases) { profile in
-                                            Text(profile.rawValue).tag(profile)
-                                        }
-                                    }
-                                    .modifier(WhiteOutlinedControl())
-                                }
-
-                                if availableCatalogDistributions.isEmpty {
-                                    Text("No catalog entries are currently available for \(selectedArchitecture.rawValue).")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-
-                                ForEach(availableCatalogDistributions) { distribution in
-                                    let artifact = preferredArtifact(
-                                        for: distribution,
-                                        artifacts: runtimeWorkbench.artifacts
-                                    )
-                                    HStack(spacing: 8) {
-                                        Button("Download \(distribution.rawValue)") {
-                                            activeDownloadTask = Task {
-                                                await downloadInstaller(for: distribution)
-                                                presentInfo(runtimeWorkbench.downloadStatusMessage.isEmpty ? statusMessage : runtimeWorkbench.downloadStatusMessage)
-                                                await MainActor.run {
-                                                    activeDownloadTask = nil
-                                                }
-                                            }
-                                        }
-                                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
-                                        .disabled(
-                                            isCreatingVM
-                                                || activeCatalogActionDistribution != nil
-                                                || runtimeWorkbench.isDownloadInProgress
-                                                || artifact == nil
-                                        )
-
-                                        Button("Install") {
-                                            Task {
-                                                await installDownloadedDistribution(distribution)
-                                                presentInfo(statusMessage)
-                                            }
-                                        }
-                                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
-                                        .disabled(
-                                            isCreatingVM
-                                                || (distribution != .windows11 && !hasInstallSource(for: distribution))
-                                                || artifact == nil
-                                        )
-
-                                        Button("Source details") {
-                                            selectedSourceDetailsArtifact = preferredArtifact(
-                                                for: distribution,
-                                                artifacts: runtimeWorkbench.artifacts
-                                            )
-                                            presentInfo("Opened source details for \(distribution.rawValue).")
-                                        }
-                                        .buttonStyle(RedTextWhiteOutlineButtonStyle())
-                                        .disabled(
-                                            artifact == nil
-                                        )
-                                    }
-                                    if artifact == nil {
-                                        Text("\(distribution.rawValue) catalog source is unavailable for \(selectedArchitecture.rawValue) right now.")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-
-                                if let activeCatalogActionDistribution {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        if let fraction = runtimeWorkbench.downloadProgressFraction {
-                                            ProgressView(value: fraction, total: 1.0)
-                                        } else if let installFraction = runtimeWorkbench.installProgressFraction, isCreatingVM {
-                                            ProgressView(value: installFraction, total: 1.0)
-                                        } else {
-                                            ProgressView()
-                                        }
-                                        Text(
-                                            runtimeWorkbench.downloadProgressFraction != nil
-                                                ? "Downloading \(activeCatalogActionDistribution.rawValue)..."
-                                                : "Installing \(activeCatalogActionDistribution.rawValue)..."
-                                        )
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                        let speedText = runtimeWorkbench.downloadProgressFraction != nil
-                                            ? runtimeWorkbench.downloadSpeedText
-                                            : runtimeWorkbench.installSpeedText
-                                        let etaText = runtimeWorkbench.downloadProgressFraction != nil
-                                            ? runtimeWorkbench.downloadETAText
-                                            : runtimeWorkbench.installETAText
-                                        if !speedText.isEmpty {
-                                            Text(speedText)
-                                                .font(.caption2)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        if !etaText.isEmpty {
-                                            Text(etaText)
-                                                .font(.caption2)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        if runtimeWorkbench.isDownloadInProgress {
-                                            Button("Stop Download") {
-                                                let distributionLabel = activeCatalogActionDistribution.rawValue
-                                                let message = runtimeWorkbench.cancelDownloadStatus(for: activeCatalogActionDistribution)
-                                                traceVM("UI downloadInstaller cancel requested distribution=" + distributionLabel)
-                                                runtimeWorkbench.markDownloadCancellationRequested()
-                                                activeDownloadTask?.cancel()
-                                                activeDownloadTask = nil
-                                                presentInfo(message)
-                                            }
-                                            .buttonStyle(RedTextWhiteOutlineButtonStyle())
-                                        }
-                                    }
-                                }
-
-                                if !runtimeWorkbench.downloadStatusMessage.isEmpty {
-                                    Text(runtimeWorkbench.downloadStatusMessage)
-                                        .font(.caption)
-                                        .foregroundColor(
-                                            runtimeWorkbench.downloadStatusMessage.localizedCaseInsensitiveContains("failed")
-                                                ? .red
-                                                : .green
-                                        )
-                                }
-
-                                if !runtimeWorkbench.customCatalogEntriesForCurrentArchitecture(selectedArchitecture).isEmpty {
-                                    Divider()
-                                    Text("Custom OS Entries")
-                                        .font(.subheadline)
-                                        .fontWeight(.semibold)
-
-                                    ForEach(runtimeWorkbench.customCatalogEntriesForCurrentArchitecture(selectedArchitecture)) { entry in
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            HStack {
-                                                Text(entry.displayName)
-                                                    .font(.subheadline)
-                                                Spacer()
-                                                Text(entry.runtimeEngine.rawValue)
-                                                    .font(.caption2)
-                                                    .padding(.horizontal, 8)
-                                                    .padding(.vertical, 3)
-                                                    .background(Color.accentColor.opacity(0.15))
-                                                    .clipShape(Capsule())
-                                            }
-                                            Text(entry.installerPath)
-                                                .font(.caption2)
-                                                .foregroundColor(.secondary)
-
-                                            HStack(spacing: 8) {
-                                                Button("Install") {
-                                                    Task {
-                                                        await installCustomCatalogEntry(entry)
-                                                    }
-                                                }
-                                                .buttonStyle(RedTextWhiteOutlineButtonStyle())
-                                                .disabled(isCreatingVM)
-
-                                                Button("Edit") {
-                                                    beginEditingCustomCatalogEntry(entry)
-                                                }
-                                                .buttonStyle(RedTextWhiteOutlineButtonStyle())
-
-                                                Button("Remove Entry") {
-                                                    removeCustomCatalogEntry(entry.id)
-                                                }
-                                                .buttonStyle(RedTextWhiteOutlineButtonStyle())
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            .modifier(GlassCardStyle(borderColor: sectionBorderColor))
-                        }
-
-                        integratedConsoleSectionView
-
-                        // VM Configuration Section
-                        vmConfigurationSectionView
-
-                        // Support Section
-                        supportSectionView
-
-                        // VM Status Section
-                        Section {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Virtual Machines")
-                                    .font(.headline)
-                                    .accessibilityAddTraits(.isHeader)
-                                
-                                if let vmID = runtimeWorkbench.activeVMID {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text("Active VM")
-                                                .font(.subheadline)
-                                            Text(vmID.uuidString)
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        Spacer()
-                                        VStack(alignment: .trailing, spacing: 4) {
-                                            if let runtimeLabel = runtimeLabel(for: vmID) {
-                                                Text(runtimeLabel)
-                                                    .font(.caption2)
-                                                    .padding(.horizontal, 8)
-                                                    .padding(.vertical, 3)
-                                                    .background(Color.accentColor.opacity(0.15))
-                                                    .clipShape(Capsule())
-                                            }
-                                            Text("Status")
-                                                .font(.caption)
-                                            Text(runtimeWorkbench.installLifecycleState.rawValue)
-                                                .font(.caption)
-                                                .foregroundColor(.blue)
-                                        }
-                                    }
-                                    .padding()
-                                    .background(Color(NSColor.controlBackgroundColor))
-                                    .cornerRadius(8)
-                                } else if let vmID = runtimeWorkbench.lastManagedVMID {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text("Last Managed VM")
-                                                .font(.subheadline)
-                                            Text(vmID.uuidString)
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        Spacer()
-                                        VStack(alignment: .trailing, spacing: 4) {
-                                            if let runtimeLabel = runtimeLabel(for: vmID) {
-                                                Text(runtimeLabel)
-                                                    .font(.caption2)
-                                                    .padding(.horizontal, 8)
-                                                    .padding(.vertical, 3)
-                                                    .background(Color.accentColor.opacity(0.15))
-                                                    .clipShape(Capsule())
-                                            }
-                                            Text("Stopped")
-                                                .font(.caption)
-                                                .foregroundColor(.orange)
-                                        }
-                                    }
-                                    .padding()
-                                    .background(Color(NSColor.controlBackgroundColor))
-                                    .cornerRadius(8)
-                                } else {
-                                    Text("No VMs created yet")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                        .frame(maxWidth: .infinity, alignment: .center)
-                                        .padding()
-                                        .background(Color(NSColor.controlBackgroundColor))
-                                        .cornerRadius(8)
-                                }
-                            }
-                        }
-
-                        // Linux App Onboarding Section (Step 3)
-                        linuxAppOnboardingSectionView
-
-                        // Live Preflight Section
-                        Section {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Live Readiness Preflight")
-                                    .font(.headline)
-
-                                Text(blueprintPlanner.readinessProgressSummary)
-                                    .font(.subheadline)
-                                    .foregroundColor(blueprintPlanner.isReadyForEnvironmentTesting ? .green : .orange)
-
-                                Text(blueprintPlanner.phaseProgressSummary)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-
-                                if !blueprintPlanner.preflightStatusMessage.isEmpty {
-                                    Text(blueprintPlanner.preflightStatusMessage)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-
-                                livePreflightActionButtons
-
-                                if !blueprintPlanner.environmentTestStartStatusMessage.isEmpty {
-                                    Text(blueprintPlanner.environmentTestStartStatusMessage)
-                                        .font(.caption)
-                                        .foregroundColor(blueprintPlanner.environmentTestingStarted ? .green : .orange)
-                                }
-
-                                if !blueprintPlanner.phaseStateExportStatusMessage.isEmpty {
-                                    Text(blueprintPlanner.phaseStateExportStatusMessage)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ForEach(blueprintPlanner.readinessCriteria) { criterion in
-                                        HStack(alignment: .top, spacing: 8) {
-                                            Text(criterion.isSatisfied ? "✓" : "•")
-                                                .foregroundColor(criterion.isSatisfied ? .green : .orange)
-                                            Text(criterion.title)
-                                                .font(.caption)
-                }
+            Button("Continue") {
+                showSafeStartupActions = true
             }
-            }
+            .keyboardShortcut(.defaultAction)
+            .buttonStyle(RedTextWhiteOutlineButtonStyle())
         }
     }
-                                Text("Roadmap Milestones")
-                                    .font(.subheadline)
-                                    .padding(.top, 8)
 
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ForEach(blueprintPlanner.phaseMilestones) { milestone in
-                                        HStack(alignment: .top, spacing: 8) {
-                                            Text(milestone.status == .complete ? "✓" : (milestone.status == .inProgress ? "•" : "○"))
-                                                .foregroundColor(milestone.status == .complete ? .green : .orange)
-                                            Text("\(milestone.title): \(milestone.status.rawValue)")
-                                                .font(.caption)
-                                        }
-                                    }
-                                }
+    private var safeStartupActionView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("ML Integration")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                Text("Safe startup actions")
+                    .font(.title3)
+                    .foregroundColor(.secondary)
+                Text("Select an action to begin. This view is intentionally lightweight and only starts work when you tap a button.")
+                    .font(.body)
+                    .multilineTextAlignment(.leading)
+                    .padding(.bottom, 10)
 
-                                deliveryActionItemsView
-                        }
+                Button("Run Live Preflight") {
+                    Task {
+                        await runLivePreflightAndSyncChecklist(forceCatalogRefresh: true)
                     }
-                    .frame(maxWidth: 980)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical)
                 }
-                .tint(useNativeMaterialStyle ? .accentColor : .red)
-                .buttonBorderShape(.roundedRectangle(radius: 8))
-                .controlSize(a11yLargeControls ? .large : .regular)
-            }
-                .background(
-                    LinearGradient(
-                        colors: [
-                        appBackgroundTopColor,
-                        appBackgroundBottomColor,
-                        appBackgroundHighlightColor
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            .overlay(
-                Color.black
-                    .opacity(lightIntensityDimOverlayOpacity)
-                    .allowsHitTesting(false)
-            )
-            .overlay(
-                Color.white
-                    .opacity(lightIntensityBrightenOverlayOpacity)
-                    .allowsHitTesting(false)
-            )
-            .preferredColorScheme(preferredColorSchemeOverride)
-            .navigationTitle("ML Integration")
-            .onAppear {
-                Task {
-                    await handleOnAppear()
+                .buttonStyle(RedTextWhiteOutlineButtonStyle())
+
+                Button("Run Onboarding Actions") {
+                    Task {
+                        await runOnboardingActions()
+                    }
                 }
-            }
-            .onChange(of: runtimeWorkbench.installedVMEntries) { _, entries in
-                handleInstalledVMEntriesChange(entries)
-            }
-            .onChange(of: downloadedInstallerByDistribution) { _, _ in
-                handleDownloadedInstallerMapChange()
-            }
-            .onChange(of: selectedArchitecture) { _, _ in
-                Task {
-                    await handleArchitectureChange()
+                .buttonStyle(RedTextWhiteOutlineButtonStyle())
+
+                Button("Browse Installer") {
+                    showFilePicker = true
                 }
-            }
-            .onChange(of: selectedCatalogDistribution) { _, distribution in
-                handleCatalogDistributionChange(distribution)
-            }
-            .onChange(of: selectedRuntimeEngine) { _, runtime in
-                Task {
-                    await handleRuntimeEngineChange(runtime)
+                .buttonStyle(RedTextWhiteOutlineButtonStyle())
+
+                Button("Return to Safe Startup") {
+                    showSafeStartupActions = false
                 }
+                .buttonStyle(RedTextWhiteOutlineButtonStyle())
             }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        ))
     }
 
     private func applyPresentationModifiers<Content: View>(to content: Content) -> some View {
@@ -914,6 +541,9 @@ struct ContentView: View {
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             NSApplication.shared.activate(ignoringOtherApps: true)
+        }
+        .task {
+            await handleOnAppear()
         }
     }
 
@@ -1240,7 +870,7 @@ struct ContentView: View {
     }
 
     private func handleOnAppear() async {
-        // await runtimeWorkbench.restoreVMRegistryState()
+        await runtimeWorkbench.restoreVMRegistryState()
         await MainActor.run {
             runtimeWorkbench.refreshDownloadedInstallerPresence()
             selectedInstalledVMID = runtimeWorkbench.activeVMID
@@ -1250,16 +880,16 @@ struct ContentView: View {
                 downloadedInstallerByDistribution[$0] != nil
             }
         }
-        // await refreshCatalogAvailability(force: true)
+        await refreshCatalogAvailability(force: true)
         await MainActor.run {
             selectedRemovalDistribution = LinuxDistribution.allCases.first {
                 downloadedInstallerByDistribution[$0] != nil
             }
         }
-        // if requiresQEMURuntimeProbe(selectedRuntimeEngine) {
-        //     _ = await runtimeWorkbench.probeQEMUAvailability(for: selectedArchitecture)
-        // }
-        // await runLivePreflightAndSyncChecklist(forceCatalogRefresh: false)
+        if requiresQEMURuntimeProbe(selectedRuntimeEngine) {
+            _ = await runtimeWorkbench.probeQEMUAvailability(for: selectedArchitecture)
+        }
+        await runLivePreflightAndSyncChecklist(forceCatalogRefresh: false)
     }
 
     private func handleInstalledVMEntriesChange(_ entries: [VMRegistryEntry]) {

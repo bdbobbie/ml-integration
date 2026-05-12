@@ -583,6 +583,9 @@ final class BlueprintPlanner: ObservableObject {
         guard let index = deliveryActionItems.firstIndex(where: { $0.id == id }) else {
             return
         }
+        guard deliveryActionItems[index].status != status else {
+            return
+        }
         deliveryActionItems[index].status = status
     }
 
@@ -612,6 +615,7 @@ final class BlueprintPlanner: ObservableObject {
 
     private func setStep6TaskStatus(id: String, to status: Step6TaskStatus) {
         guard let index = step6Tasks.firstIndex(where: { $0.id == id }) else { return }
+        guard step6Tasks[index].status != status else { return }
         step6Tasks[index].status = status
     }
 
